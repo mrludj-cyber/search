@@ -299,7 +299,7 @@
 
             files.forEach(f => {
                 const nameLower = f.name.toLowerCase();
-                if (f.type.startsWith('video/') || nameLower.match(/\.(mp4|avi|mkv|wmv|mov|webm|m4v)$/)) {
+                if (f.type.startsWith('video/') || nameLower.match(/\.(mp4|avi|mkv|wmv|mov|webm|m4v|nel)$/)) {
                     loadedVideos.push(f);
                 } 
                 else if (nameLower.endsWith('.srt') || nameLower.endsWith('.vtt')) {
