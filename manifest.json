@@ -1,6 +1,6 @@
 {
-  "name": "JAV Player",
-  "short_name": "JAV Player",
+  "name": "Player",
+  "short_name": "Player",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#121212",
