@@ -5,7 +5,7 @@
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#1e1e1e">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>JAV Folder Player (Speed Sync & Save)</title>
+    <title>JAV Folder Player (Smart Scan Support)</title>
     <style>
         /* === 기본 스타일 === */
         body { background-color: #121212; color: #e0e0e0; font-family: sans-serif; margin: 0; padding: 10px; padding-bottom: 50px; }
@@ -285,7 +285,7 @@
         let currentSubtitleKey = ""; 
 
         // ==========================================
-        // 1. 파일 스캔
+        // 1. 파일 스캔 (검색 로직 강화 적용)
         // ==========================================
         document.getElementById('folder-upload').addEventListener('change', function(event) {
             const files = Array.from(event.target.files);
@@ -317,10 +317,49 @@
             gallery.innerHTML = '';
 
             loadedVideos.forEach((file, index) => {
-                const nameMatch = file.name.match(/([a-zA-Z]{2,5})[-_\s]?(\d{3,5})/);
+                // 확장자 제외한 파일명
+                const nameNoExt = file.name.substring(0, file.name.lastIndexOf('.'));
+                
                 let fileId = "";
-                if (nameMatch) fileId = `${nameMatch[1]}-${nameMatch[2]}`.toLowerCase();
-                else fileId = file.name.substring(0, file.name.lastIndexOf('.')).toLowerCase();
+                let isRecognized = false;
+
+                // [강력해진 정규식 스캔 로직]
+                // 1. FC2 (fc2-ppv-123, fc2 123 등)
+                const fc2Match = nameNoExt.match(/fc2[-\s\.]?(?:ppv)?[-\s\.]?(\d+)/i);
+                // 2. Caribbeancom (carib-010123-001)
+                const caribMatch = nameNoExt.match(/carib(?:beancom)?[-\s\.]?(\d{6})[-\s\.]?(\d{3})/i);
+                // 3. 날짜형 (041912-998)
+                const dateMatch = nameNoExt.match(/(\d{6})[-\s\.]?(\d{3,})/);
+                // 4. Tokyo Hot (n0594)
+                const nMatch = nameNoExt.match(/n(\d{3,5})/i);
+                // 5. 일반 품번 (문자+숫자, letters+numbers)
+                const stdMatch = nameNoExt.match(/([a-z]+)[-\s\.]?(\d+)/i);
+
+                if (fc2Match) {
+                    fileId = `fc2-ppv-${fc2Match[1]}`;
+                    isRecognized = true;
+                } 
+                else if (caribMatch) {
+                    fileId = `caribbeancom-${caribMatch[1]}-${caribMatch[2]}`;
+                    isRecognized = true;
+                }
+                else if (dateMatch) {
+                    fileId = `${dateMatch[1]}-${dateMatch[2]}`;
+                    isRecognized = true;
+                }
+                else if (nMatch) {
+                    fileId = `n${nMatch[1]}`;
+                    isRecognized = true;
+                }
+                else if (stdMatch) {
+                    fileId = `${stdMatch[1].toLowerCase()}-${stdMatch[2]}`;
+                    isRecognized = true;
+                } 
+                else {
+                    // 감지 실패 시 원본 파일명(소문자) 사용
+                    fileId = nameNoExt.toLowerCase();
+                    isRecognized = false;
+                }
 
                 const uncensoredId = fileId + "-uncensored-leak";
                 const uncThumb = `https://wsrv.nl/?url=fourhoi.com/${uncensoredId}/cover-t.jpg&q=70`;
@@ -348,8 +387,12 @@
                     </div>
                 `;
                 gallery.insertAdjacentHTML('beforeend', itemHtml);
-                if (nameMatch) addToQueue(fileId, index);
-                else document.getElementById(`title-${index}`).innerText = "ID 추출 실패";
+                
+                if (isRecognized) {
+                    addToQueue(fileId, index);
+                } else {
+                    document.getElementById(`title-${index}`).innerText = "ID 추출 실패";
+                }
             });
         });
 
