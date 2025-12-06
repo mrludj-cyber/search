@@ -428,7 +428,7 @@
             const titleEl = document.getElementById(`title-${item.index}`);
             if(!titleEl) return;
             if (item.retries === 0) titleEl.innerText = "확인 중...";
-            const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://missav.live/ko/${item.id}`)}`;
+            const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://missavtv.com/ko/${item.id}`)}`;
             try {
                 const response = await fetch(proxyUrl);
                 if (!response.ok) throw new Error("Net");
