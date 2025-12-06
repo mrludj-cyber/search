@@ -323,16 +323,27 @@
                 let fileId = "";
                 let isRecognized = false;
 
-                // [강력해진 정규식 스캔 로직]
+                // [수정됨: 다양한 품번 포맷 감지 로직]
+                
                 // 1. FC2 (fc2-ppv-123, fc2 123 등)
                 const fc2Match = nameNoExt.match(/fc2[-\s\.]?(?:ppv)?[-\s\.]?(\d+)/i);
+                
                 // 2. Caribbeancom (carib-010123-001)
                 const caribMatch = nameNoExt.match(/carib(?:beancom)?[-\s\.]?(\d{6})[-\s\.]?(\d{3})/i);
-                // 3. 날짜형 (041912-998)
+
+                // [NEW] 3. 특수 날짜 포맷 (6자리 숫자 + (_ 또는 -) + 2~3자리 숫자)
+                // 예: 031417_498, 011018-01, 011018-002, 012528_637
+                // 파일명 중간에 포함되어 있을 수 있으므로 앞뒤로 구분자 체크가 필요할 수 있으나,
+                // 여기서는 가장 명확한 패턴을 우선 매칭합니다.
+                const mixedDateMatch = nameNoExt.match(/(\d{6})([-_])(\d{2,3})/);
+
+                // 4. 일반 날짜형 (041912-998) - 기존 로직 유지
                 const dateMatch = nameNoExt.match(/(\d{6})[-\s\.]?(\d{3,})/);
-                // 4. Tokyo Hot (n0594)
+                
+                // 5. Tokyo Hot (n0594)
                 const nMatch = nameNoExt.match(/n(\d{3,5})/i);
-                // 5. 일반 품번 (문자+숫자, letters+numbers)
+                
+                // 6. 일반 품번 (문자+숫자)
                 const stdMatch = nameNoExt.match(/([a-z]+)[-\s\.]?(\d+)/i);
 
                 if (fc2Match) {
@@ -341,6 +352,13 @@
                 } 
                 else if (caribMatch) {
                     fileId = `caribbeancom-${caribMatch[1]}-${caribMatch[2]}`;
+                    isRecognized = true;
+                }
+                else if (mixedDateMatch) {
+                    // [NEW] 사용자가 요청한 포맷: 구분자와 숫자를 그대로 유지
+                    // 031417_498 -> 031417_498
+                    // 011018-01  -> 011018-01
+                    fileId = `${mixedDateMatch[1]}${mixedDateMatch[2]}${mixedDateMatch[3]}`;
                     isRecognized = true;
                 }
                 else if (dateMatch) {
@@ -360,6 +378,9 @@
                     fileId = nameNoExt.toLowerCase();
                     isRecognized = false;
                 }
+
+                const uncensoredId = fileId + "-uncensored-leak";
+                // ... (아래 코드는 기존과 동일)
 
                 const uncensoredId = fileId + "-uncensored-leak";
                 const uncThumb = `https://wsrv.nl/?url=fourhoi.com/${uncensoredId}/cover-t.jpg&q=70`;
