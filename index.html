@@ -302,7 +302,7 @@
                 if (f.type.startsWith('video/') || nameLower.match(/\.(mp4|avi|mkv|wmv|mov|webm|m4v|nel)$/)) {
                     loadedVideos.push(f);
                 } 
-                else if (nameLower.endsWith('.srt') || nameLower.endsWith('.vtt')) {
+                else if (nameLower.endsWith('.srt') || nameLower.endsWith('.srn')) {
                     const baseName = nameLower.substring(0, nameLower.lastIndexOf('.'));
                     subtitleMap[baseName] = f;
                 }
