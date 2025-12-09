@@ -3,32 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#000000">
-    <!-- [수정 1] viewport-fit=cover 추가 (아이폰/안드로이드 전체화면 꽉 채움) -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#1e1e1e">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>JAV Folder Player (Smart Scan Support)</title>
     <style>
         /* === 기본 스타일 === */
-        /* [수정 2] html, body 배경을 완전 검정으로 하고 여백 제거 */
-        html { background-color: #000; height: 100%; }
-        body { 
-            background-color: #121212; 
-            color: #e0e0e0; 
-            font-family: sans-serif; 
-            margin: 0; 
-            padding: 0; /* body 패딩 제거 (컨텐츠 래퍼로 이동) */
-            height: 100%;
-            overflow-x: hidden;
-        }
+        body { background-color: #121212; color: #e0e0e0; font-family: sans-serif; margin: 0; padding: 10px; padding-bottom: 50px; }
         * { box-sizing: border-box; }
         a { text-decoration: none; color: inherit; }
-
-        /* [추가] 메인 컨텐츠 래퍼 (기존 body 패딩 역할을 여기로 이동) */
-        .main-wrapper {
-            padding: 10px;
-            padding-bottom: 50px;
-            min-height: 100%;
-        }
 
         /* 자막 스타일 */
         video::cue {
@@ -44,7 +26,7 @@
             text-align: center; margin-bottom: 20px; padding: 15px;
             background-color: #1e1e1e; border-radius: 8px; border: 1px solid #333;
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            position: sticky; top: 10px; z-index: 100; /* top 위치 조정 */
+            position: sticky; top: 0; z-index: 100;
         }
         .custom-file-upload {
             display: inline-block; padding: 12px 25px; cursor: pointer;
@@ -100,42 +82,18 @@
 
         /* === 3. 플레이어 모달 === */
         .modal-overlay {
-            display: none; 
-            position: fixed; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            /* [수정 3] 높이를 100dvh로 설정하여 모바일 주소창/네비바 무시하고 꽉 채움 */
-            height: 100dvh; 
-            background-color: #000; 
-            z-index: 2000;
-            margin: 0; padding: 0; /* 혹시 모를 여백 제거 */
+            display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh;
+            background-color: #000; z-index: 2000; margin: 0; padding: 0;
         }
-        
-        /* [수정 4] 전체화면 시 강제 스타일 적용 */
-        .modal-overlay:fullscreen {
-            width: 100vw; height: 100vh;
-        }
-
         .video-wrapper {
             position: relative; width: 100%; height: 100%;
             display: flex; align-items: center; justify-content: center; background: #000;
         }
-        
-        /* [수정 5] 비디오 태그가 가능한 꽉 차게 */
-        video { 
-            width: 100%; 
-            height: 100%; 
-            max-height: 100dvh; 
-            object-fit: contain; /* 비율 유지하며 꽉 채움 */
-            outline: none; 
-        }
+        video { width: 100%; max-height: 100vh; outline: none; }
 
         .video-title-bar {
             position: absolute; top: 0; left: 0; width: 100%;
             padding: 15px 60px 15px 20px;
-            /* [수정 6] 상단바 그라데이션이 안전영역 침범 시 잘 보이도록 패딩 추가 */
-            padding-top: max(15px, env(safe-area-inset-top));
             background: linear-gradient(to bottom, rgba(0,0,0,0.8), rgba(0,0,0,0));
             color: #fff; font-size: 1rem; font-weight: bold;
             z-index: 2100; pointer-events: none;
@@ -151,8 +109,7 @@
         .controls-bar {
             position: absolute; bottom: 0; left: 0; width: 100%;
             background: linear-gradient(to top, rgba(0,0,0,0.9), rgba(0,0,0,0));
-            /* [수정 7] 하단바가 아이폰 홈바 등에 가리지 않도록 safe-area 적용 */
-            padding: 10px 15px max(25px, env(safe-area-inset-bottom)) 15px;
+            padding: 10px 15px 25px 15px;
             display: flex; flex-direction: column; gap: 10px; z-index: 2100;
         }
 
@@ -167,7 +124,7 @@
         .small-text { font-size: 0.8rem; margin-left: 2px; font-weight: normal; }
 
         .top-close-btn {
-            position: absolute; top: max(20px, env(safe-area-inset-top)); right: 20px;
+            position: absolute; top: 20px; right: 20px;
             background: rgba(0,0,0,0.5); color: #fff; border: 1px solid rgba(255,255,255,0.3);
             border-radius: 50%; width: 36px; height: 36px;
             font-size: 1.2rem; cursor: pointer; z-index: 2200;
@@ -182,8 +139,8 @@
             padding: 12px; width: 280px;
             display: none; flex-direction: column; gap: 8px; z-index: 2200;
         }
-        #speedMenu { left: 15px; bottom: max(80px, env(safe-area-inset-bottom) + 50px); }
-        #subMenu { right: 15px; bottom: max(80px, env(safe-area-inset-bottom) + 50px); }
+        #speedMenu { left: 15px; }
+        #subMenu { right: 15px; }
         .menu-title { font-size: 0.9rem; color: #aaa; border-bottom: 1px solid #444; padding-bottom: 5px; margin-bottom: 5px; }
         .menu-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
         .menu-btn { background: #333; border: 1px solid #555; color: #eee; padding: 6px 10px; border-radius: 4px; font-size: 0.85rem; cursor: pointer; }
@@ -194,7 +151,7 @@
             position: absolute; top: 0; right: 0; width: 300px; height: 100%;
             background: rgba(20, 20, 20, 0.95); border-left: 1px solid #444;
             z-index: 2300; display: none; flex-direction: column;
-            padding: 10px; padding-top: max(10px, env(safe-area-inset-top));
+            padding: 10px;
         }
         .sub-list-header {
             font-size: 1rem; font-weight: bold; color: #fff; border-bottom: 1px solid #555;
@@ -215,18 +172,15 @@
 </head>
 <body>
 
-    <!-- [수정 8] body 패딩을 대신할 래퍼 div 추가 -->
-    <div class="main-wrapper">
-        <div class="control-panel">
-            <label for="folder-upload" class="custom-file-upload">
-                📂 폴더 선택 (Select Folder)
-            </label>
-            <input id="folder-upload" type="file" webkitdirectory directory multiple />
-            <div id="status" class="status-msg">폴더를 선택하면 영상 목록을 스캔합니다.</div>
-        </div>
-
-        <div id="gallery" class="container"></div>
+    <div class="control-panel">
+        <label for="folder-upload" class="custom-file-upload">
+            📂 폴더 선택 (Select Folder)
+        </label>
+        <input id="folder-upload" type="file" webkitdirectory directory multiple />
+        <div id="status" class="status-msg">폴더를 선택하면 영상 목록을 스캔합니다.</div>
     </div>
+
+    <div id="gallery" class="container"></div>
 
     <div id="videoModal" class="modal-overlay">
         <div id="videoWrapper" class="video-wrapper">
@@ -236,7 +190,7 @@
             <video id="mainPlayer" playsinline onclick="toggleControls()" crossorigin="anonymous"></video>
             <button class="top-close-btn" onclick="closeModal()">✕</button>
 
-            <!-- 자막 리스트 -->
+            <!-- 자막 리스트 (속도 싱크용) -->
             <div id="subListModal" class="sub-list-modal" onclick="event.stopPropagation()">
                 <div class="sub-list-header">
                     <span>📑 자막 속도 맞춤 (Speed Sync)</span>
@@ -327,10 +281,11 @@
         let touchStartX = 0; let touchStartTime = 0; let isTouching = false; let wasPlayingBeforeDrag = false; 
         const SENSITIVITY = 0.2; 
 
+        // [New] 현재 재생중인 자막 파일 식별자 (저장용)
         let currentSubtitleKey = ""; 
 
         // ==========================================
-        // 1. 파일 스캔
+        // 1. 파일 스캔 (검색 로직 강화 적용)
         // ==========================================
         document.getElementById('folder-upload').addEventListener('change', function(event) {
             const files = Array.from(event.target.files);
@@ -362,25 +317,67 @@
             gallery.innerHTML = '';
 
             loadedVideos.forEach((file, index) => {
+                // 확장자 제외한 파일명
                 const nameNoExt = file.name.substring(0, file.name.lastIndexOf('.'));
                 
                 let fileId = "";
                 let isRecognized = false;
 
+                // [수정됨: 다양한 품번 포맷 감지 로직]
+                
+                // 1. FC2 (fc2-ppv-123, fc2 123 등)
                 const fc2Match = nameNoExt.match(/fc2[-\s\.]?(?:ppv)?[-\s\.]?(\d+)/i);
+                
+                // 2. Caribbeancom (carib-010123-001)
                 const caribMatch = nameNoExt.match(/carib(?:beancom)?[-\s\.]?(\d{6})[-\s\.]?(\d{3})/i);
+
+                // [NEW] 3. 특수 날짜 포맷 (6자리 숫자 + (_ 또는 -) + 2~3자리 숫자)
+                // 예: 031417_498, 011018-01, 011018-002, 012528_637
+                // 파일명 중간에 포함되어 있을 수 있으므로 앞뒤로 구분자 체크가 필요할 수 있으나,
+                // 여기서는 가장 명확한 패턴을 우선 매칭합니다.
                 const mixedDateMatch = nameNoExt.match(/(\d{6})([-_])(\d{2,3})/);
+
+                // 4. 일반 날짜형 (041912-998) - 기존 로직 유지
                 const dateMatch = nameNoExt.match(/(\d{6})[-\s\.]?(\d{3,})/);
+                
+                // 5. Tokyo Hot (n0594)
                 const nMatch = nameNoExt.match(/n(\d{3,5})/i);
+                
+                // 6. 일반 품번 (문자+숫자)
                 const stdMatch = nameNoExt.match(/([a-z]+)[-\s\.]?(\d+)/i);
 
-                if (fc2Match) { fileId = `fc2-ppv-${fc2Match[1]}`; isRecognized = true; } 
-                else if (caribMatch) { fileId = `caribbeancom-${caribMatch[1]}-${caribMatch[2]}`; isRecognized = true; }
-                else if (mixedDateMatch) { fileId = `${mixedDateMatch[1]}${mixedDateMatch[2]}${mixedDateMatch[3]}`; isRecognized = true; }
-                else if (dateMatch) { fileId = `${dateMatch[1]}-${dateMatch[2]}`; isRecognized = true; }
-                else if (nMatch) { fileId = `n${nMatch[1]}`; isRecognized = true; }
-                else if (stdMatch) { fileId = `${stdMatch[1].toLowerCase()}-${stdMatch[2]}`; isRecognized = true; } 
-                else { fileId = nameNoExt.toLowerCase(); isRecognized = false; }
+                if (fc2Match) {
+                    fileId = `fc2-ppv-${fc2Match[1]}`;
+                    isRecognized = true;
+                } 
+                else if (caribMatch) {
+                    fileId = `caribbeancom-${caribMatch[1]}-${caribMatch[2]}`;
+                    isRecognized = true;
+                }
+                else if (mixedDateMatch) {
+                    // [NEW] 사용자가 요청한 포맷: 구분자와 숫자를 그대로 유지
+                    // 031417_498 -> 031417_498
+                    // 011018-01  -> 011018-01
+                    fileId = `${mixedDateMatch[1]}${mixedDateMatch[2]}${mixedDateMatch[3]}`;
+                    isRecognized = true;
+                }
+                else if (dateMatch) {
+                    fileId = `${dateMatch[1]}-${dateMatch[2]}`;
+                    isRecognized = true;
+                }
+                else if (nMatch) {
+                    fileId = `n${nMatch[1]}`;
+                    isRecognized = true;
+                }
+                else if (stdMatch) {
+                    fileId = `${stdMatch[1].toLowerCase()}-${stdMatch[2]}`;
+                    isRecognized = true;
+                } 
+                else {
+                    // 감지 실패 시 원본 파일명(소문자) 사용
+                    fileId = nameNoExt.toLowerCase();
+                    isRecognized = false;
+                }
 
                 const uncensoredId = fileId + "-uncensored-leak";
                 const uncThumb = `https://wsrv.nl/?url=fourhoi.com/${uncensoredId}/cover-t.jpg&q=70`;
@@ -408,10 +405,16 @@
                     </div>
                 `;
                 gallery.insertAdjacentHTML('beforeend', itemHtml);
-                if (isRecognized) { addToQueue(fileId, index); } else { document.getElementById(`title-${index}`).innerText = "ID 추출 실패"; }
+                
+                if (isRecognized) {
+                    addToQueue(fileId, index);
+                } else {
+                    document.getElementById(`title-${index}`).innerText = "ID 추출 실패";
+                }
             });
         });
 
+        // 제목 가져오기
         function addToQueue(fileId, index) { titleQueue.push({ id: fileId, index: index, retries: 0 }); processBatch(); }
         async function processBatch() {
             if (isBatchRunning || titleQueue.length === 0) return;
@@ -453,6 +456,7 @@
             container.innerHTML = `<video src="${vUrl}" autoplay loop muted playsinline class="media-content" onclick="window.open('${tUrl}', '_blank');"></video>`;
         }
 
+
         // ==========================================
         // 3. 로컬 플레이어
         // ==========================================
@@ -484,9 +488,11 @@
             const rawName = file.name;
             const baseName = (rawName.lastIndexOf('.') === -1 ? rawName : rawName.substring(0, rawName.lastIndexOf('.'))).toLowerCase();
             
-            if (subtitleMap[baseName]) { readAndAttachSubtitle(subtitleMap[baseName], true); }
+            if (subtitleMap[baseName]) {
+                readAndAttachSubtitle(subtitleMap[baseName], true);
+            }
 
-            modal.style.display = 'flex'; // 수정됨: flex로 표시하되 CSS에서 dvh 적용됨
+            modal.style.display = 'flex';
             player.controls = false;
             player.play().catch(() => {});
             updatePlayIcon();
@@ -494,11 +500,12 @@
 
         function readAndAttachSubtitle(file, isAuto = false) {
             clearSubtitles(); 
-            currentSubtitleKey = file.name; 
+            currentSubtitleKey = file.name; // 저장 키로 사용
 
             const reader = new FileReader();
             reader.onload = function(e) {
                 let content = e.target.result;
+                // .srn 파일도 .srt와 동일하게 srtToVtt 변환을 거치도록 조건 추가
                 if (file.name.toLowerCase().endsWith('.srt') || file.name.toLowerCase().endsWith('.srn')) {
                     content = srtToVtt(content);
                 }
@@ -509,18 +516,28 @@
                 
                 track.onload = function() {
                     const cues = this.track.cues;
+                    
+                    // 1. 원본 시간 저장 (필수: 배율 계산 기준점)
                     if (cues && cues.length > 0) {
                         for (let i = 0; i < cues.length; i++) {
+                            // 커스텀 속성에 원본 시간 저장
                             if(!cues[i]._originalStartTime) {
                                 cues[i]._originalStartTime = cues[i].startTime;
                                 cues[i]._originalEndTime = cues[i].endTime;
                             }
+                            // 겹침 방지 초기 세팅
                             cues[i].line = -2; cues[i].snapToLines = true;
                         }
                     }
+
+                    // 2. 저장된 속도(Factor) 불러오기
                     const savedFactor = loadSavedSubtitleFactor(currentSubtitleKey);
-                    if (savedFactor) { applySubtitleFactor(savedFactor, false); }
-                    renderSubList(cues); 
+                    if (savedFactor) {
+                        applySubtitleFactor(savedFactor, false); // 저장된 값 적용
+                        if(!isAuto) alert(`저장된 자막 속도 적용됨: ${(100/savedFactor).toFixed(2)}%`);
+                    }
+
+                    renderSubList(cues); // 리스트 렌더링
                     this.track.mode = 'showing';
                 };
                 player.appendChild(track);
@@ -535,7 +552,7 @@
         function closeModal() { if (document.fullscreenElement) document.exitFullscreen(); modal.style.display = 'none'; player.pause(); clearSubtitles(); player.src = ""; }
 
         // ==========================================
-        // 4. 자막 리스트 & 속도 싱크
+        // 4. 자막 리스트 & 속도 싱크 (핵심 로직)
         // ==========================================
         function toggleSubList() {
             const isVisible = subListModal.style.display === 'flex';
@@ -570,16 +587,30 @@
             subListContent.innerHTML = html;
         }
 
+        // [핵심] 클릭 시 자막 속도(Factor) 계산 및 적용
         function syncToSubtitleAsSpeed(index) {
             const cues = getCues();
             if (!cues || !cues[index]) return;
+
             const selectedCue = cues[index];
-            const originalStart = selectedCue._originalStartTime; 
-            if (!originalStart || originalStart <= 0) { alert("시작 시간이 0인 자막으로는 속도를 계산할 수 없습니다."); return; }
+            const originalStart = selectedCue._originalStartTime; // 원본 시간 기준
+
+            if (!originalStart || originalStart <= 0) {
+                alert("시작 시간이 0인 자막으로는 속도를 계산할 수 없습니다.");
+                return;
+            }
+
+            // 현재 비디오 시간 / 원본 자막 시간 = 배율(Factor)
+            // 예: 영상 100초, 자막 98초 -> 100/98 = 1.02 (시간을 1.02배 늘림)
             const factor = player.currentTime / originalStart;
+
+            // 적용 및 저장
             applySubtitleFactor(factor, true);
+            
+            // 피드백
             document.querySelectorAll('.sub-item').forEach(el => el.classList.remove('active'));
             document.getElementById(`sub-item-${index}`).classList.add('active');
+            
             const speedPercent = (100 / factor).toFixed(2);
             alert(`속도 동기화 완료!\n배율: ${factor.toFixed(4)}\n자막 속도: ${speedPercent}%\n(저장되었습니다)`);
         }
@@ -589,30 +620,55 @@
             if(!val) return;
             const percentage = parseFloat(val);
             if (percentage <= 0) return alert("0보다 커야 합니다.");
+            
+            // 98% 속도 -> 시간이 길어짐 -> Factor = 100 / 98
             const factor = 100 / percentage;
             applySubtitleFactor(factor, true);
             alert(`수동 속도 ${percentage}% 적용 완료`);
         }
 
-        function resetSubtitleFactor() { applySubtitleFactor(1.0, true); alert("자막 속도 초기화 (100%)"); }
+        function resetSubtitleFactor() {
+            applySubtitleFactor(1.0, true);
+            alert("자막 속도 초기화 (100%)");
+        }
 
+        // 공통 자막 변환 함수 (Factor 적용)
         function applySubtitleFactor(factor, save) {
             const cues = getCues();
             if (!cues) return;
+
             for(let i=0; i<cues.length; i++){ 
                 const cue = cues[i];
+                // 항상 원본 시간(_originalStartTime)을 기준으로 재계산하여 오차 누적 방지
                 if(cue._originalStartTime !== undefined) {
                     cue.startTime = cue._originalStartTime * factor;
                     cue.endTime = cue._originalEndTime * factor;
                 }
-                cue.line = -2; cue.snapToLines = true;
-                if(i > 0) { const prevCue = cues[i-1]; if(prevCue.endTime > cue.startTime) prevCue.endTime = cue.startTime; }
+                
+                // 겹침 방지 (Stacking Fix)
+                cue.line = -2; 
+                cue.snapToLines = true;
+                if(i > 0) { 
+                    const prevCue = cues[i-1];
+                    if(prevCue.endTime > cue.startTime) prevCue.endTime = cue.startTime; 
+                }
             }
-            if(save && currentSubtitleKey) { localStorage.setItem('sub_factor_' + currentSubtitleKey, factor); }
+
+            // 저장
+            if(save && currentSubtitleKey) {
+                localStorage.setItem('sub_factor_' + currentSubtitleKey, factor);
+            }
         }
 
-        function loadSavedSubtitleFactor(key) { const val = localStorage.getItem('sub_factor_' + key); return val ? parseFloat(val) : null; }
-        function getCues() { const tracks = Array.from(player.textTracks).filter(t => t.mode === 'showing'); return (tracks.length > 0) ? tracks[0].cues : null; }
+        function loadSavedSubtitleFactor(key) {
+            const val = localStorage.getItem('sub_factor_' + key);
+            return val ? parseFloat(val) : null;
+        }
+
+        function getCues() {
+            const tracks = Array.from(player.textTracks).filter(t => t.mode === 'showing');
+            return (tracks.length > 0) ? tracks[0].cues : null;
+        }
 
         // ==========================================
         // 5. 컨트롤바 & 제스처
@@ -630,6 +686,7 @@
             if (!isDraggingSeek && !isTouching) { 
                 seekBar.value = player.currentTime;
                 document.getElementById('currentTimeText').innerText = formatTime(player.currentTime);
+                // 리스트 활성화
                 const cues = getCues();
                 if(cues && subListModal.style.display === 'flex') {
                     for(let i=0; i<cues.length; i++) {
@@ -706,6 +763,7 @@
         function seek(sec) { player.currentTime += sec; }
         function setSpeed(rate) { player.playbackRate = rate; document.getElementById('speedBtnText').innerText = rate; toggleMenu('speedMenu'); }
         function toggleFullscreen() { if (!document.fullscreenElement) videoWrapper.requestFullscreen().catch(() => {}); else document.exitFullscreen(); }
+        
         function srtToVtt(srt) { return "WEBVTT\n\n" + srt.replace(/(\d{2}):(\d{2}):(\d{2}),(\d{3})/g, '$1:$2:$3.$4'); }
     </script>
 </body>
