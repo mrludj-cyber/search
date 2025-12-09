@@ -209,6 +209,10 @@
                 📂 폴더 선택 (Select Folder)
             </label>
             <input id="folder-upload" type="file" webkitdirectory directory multiple />
+            <button class="btn-danger" style="margin-left:10px; padding:10px; background:#dc3545; border:none; color:white; border-radius:6px; cursor:pointer;" onclick="clearThumbnailCache()">
+                🗑️ 썸네일 캐시 삭제
+            </button>
+            <div id="cacheStatus" style="font-size:0.8rem; color:#888; margin-top:5px;"></div>
             <div id="status" class="status-msg">폴더를 선택하면 영상 목록을 스캔합니다.</div>
         </div>
     
@@ -292,6 +296,39 @@
     </div>
 
     <script>
+        // === IndexedDB (썸네일 캐시) 설정 ===
+        const DB_NAME = 'JavThumbDB', STORE_NAME = 'thumbnails';
+        let db;
+    
+        function initDB() {
+            const req = indexedDB.open(DB_NAME, 1);
+            req.onupgradeneeded = e => {
+                if (!e.target.result.objectStoreNames.contains(STORE_NAME)) 
+                    e.target.result.createObjectStore(STORE_NAME);
+            };
+            req.onsuccess = e => { db = e.target.result; updateCacheStatus(); };
+        }
+        initDB();
+    
+        function getCacheKey(file) { return `${file.name}_${file.size}_${file.lastModified}`; }
+        
+        // 캐시 상태 표시
+        function updateCacheStatus() {
+            if (!db) return;
+            const req = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).count();
+            req.onsuccess = () => {
+                const el = document.getElementById('cacheStatus');
+                if(el) el.innerText = `저장된 로컬 썸네일: ${req.result}개`;
+            };
+        }
+        
+        // 캐시 삭제 함수
+        function clearThumbnailCache() {
+            if (!confirm("저장된 썸네일 캐시를 모두 삭제하시겠습니까?")) return;
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            tx.objectStore(STORE_NAME).clear();
+            tx.oncomplete = () => { alert("삭제되었습니다."); updateCacheStatus(); };
+        }
         // === 전역 변수 ===
         let loadedVideos = [];
         let subtitleMap = {};
@@ -427,9 +464,12 @@
                         <div class="video-title" id="title-${index}">...</div>
                         <div id="${divId}" class="media-container">
                             <div class="badge-no">노</div>
-                            <img src="${uncThumb}" class="media-content"
+                            <img src="${uncThumb}" 
+                                data-fallback="${stdThumb}" 
+                                data-index="${index}"
+                                class="media-content"
                                 onclick="playWebPreview('${divId}', '${uncPrev}', '${targetUrl}')"
-                                onerror="this.src='${stdThumb}'; this.parentNode.querySelector('.badge-no').style.display='none'; this.setAttribute('onclick', 'playWebPreview(\\'${divId}\\', \\'${stdPrev}\\', \\'${targetUrl}\\')');"
+                                onerror="onThumbnailError(this)"
                             >
                         </div>
                         <div class="btn-group">
@@ -875,6 +915,111 @@
         function toggleFullscreen() { if (!document.fullscreenElement) videoWrapper.requestFullscreen().catch(() => {}); else document.exitFullscreen(); }
         
         function srtToVtt(srt) { return "WEBVTT\n\n" + srt.replace(/(\d{2}):(\d{2}):(\d{2}),(\d{3})/g, '$1:$2:$3.$4'); }
+/* === 썸네일 에러 처리 및 로컬 생성/캐싱 로직 === */
+    async function onThumbnailError(img) {
+        const index = img.dataset.index;
+        const file = loadedVideos[index];
+        if (!file) return;
+
+        // 1. DB 캐시 확인
+        if (db) {
+            const key = getCacheKey(file);
+            const getReq = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(key);
+            getReq.onsuccess = () => {
+                if (getReq.result) {
+                    // 캐시 있으면 사용
+                    const url = URL.createObjectURL(getReq.result);
+                    img.src = url;
+                    img.onload = () => URL.revokeObjectURL(url);
+                    img.onerror = null; // 더 이상 에러 체크 안 함
+                } else {
+                    // 캐시 없으면 다음 단계 진행
+                    tryNextFallback(img);
+                }
+            };
+        } else {
+            tryNextFallback(img);
+        }
+    }
+
+    function tryNextFallback(img) {
+        const fallbackUrl = img.dataset.fallback;
+        const currentSrc = img.getAttribute('src');
+
+        // 2. 외부 2차 이미지(Standard) 시도
+        if (fallbackUrl && currentSrc !== fallbackUrl && !img.dataset.triedLocal) {
+            img.src = fallbackUrl;
+            // 뱃지 숨기기 (옵션)
+            const container = img.closest('.media-container');
+            if(container && container.querySelector('.badge-no')) 
+                container.querySelector('.badge-no').style.display = 'none';
+        } 
+        // 3. 로컬 생성 시도
+        else {
+            img.onerror = null;
+            img.dataset.triedLocal = "true";
+            img.style.opacity = "0.3"; // 로딩 중 표시
+            thumbObserver.observe(img); // 화면에 보일 때 생성 시작
+        }
+    }
+
+    // 화면에 보일 때만 생성 (성능 최적화)
+    const thumbObserver = new IntersectionObserver((entries, obs) => {
+        entries.forEach(e => {
+            if (e.isIntersecting) {
+                generateLocalThumbnail(e.target);
+                obs.unobserve(e.target);
+            }
+        });
+    }, { rootMargin: '200px' });
+
+    async function generateLocalThumbnail(imgEl) {
+        const index = imgEl.dataset.index;
+        const file = loadedVideos[index];
+        if (!file) return;
+
+        const video = document.createElement('video');
+        video.src = URL.createObjectURL(file);
+        video.muted = true;
+        video.playsInline = true;
+        video.currentTime = 15; // 15초 지점 캡처
+
+        const capture = () => {
+            try {
+                const cvs = document.createElement('canvas');
+                const scale = 320 / video.videoWidth; // 너비 320px 고정
+                cvs.width = 320;
+                cvs.height = video.videoHeight * scale;
+                cvs.getContext('2d').drawImage(video, 0, 0, cvs.width, cvs.height);
+
+                cvs.toBlob(blob => {
+                    if (blob) {
+                        // 1. 이미지 교체
+                        const url = URL.createObjectURL(blob);
+                        imgEl.src = url;
+                        imgEl.style.opacity = "1";
+                        
+                        // 2. DB 저장
+                        if(db) {
+                            const tx = db.transaction(STORE_NAME, 'readwrite');
+                            tx.objectStore(STORE_NAME).put(blob, getCacheKey(file));
+                            tx.oncomplete = updateCacheStatus;
+                        }
+                    }
+                    URL.revokeObjectURL(video.src);
+                    video.remove();
+                }, 'image/jpeg', 0.7);
+            } catch (e) {
+                console.error(e);
+                URL.revokeObjectURL(video.src);
+            }
+        };
+
+        video.onloadeddata = () => { if(video.duration < 15) video.currentTime = video.duration * 0.5; };
+        video.onseeked = capture;
+        video.onerror = () => URL.revokeObjectURL(video.src);
+        video.load();
+    }
     </script>
 </body>
 </html>
