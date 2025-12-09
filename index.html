@@ -714,9 +714,7 @@
             return (tracks.length > 0) ? tracks[0].cues : null;
         }
 
-        // ==========================================
-        // 5. 컨트롤바 & 제스처
-        // ==========================================
+        // === 5. 컨트롤바 & 제스처 (4배속 기능 추가됨) ===
         function formatTime(seconds) {
             const m = Math.floor(seconds / 60);
             const s = Math.floor(seconds % 60);
@@ -752,43 +750,103 @@
         });
         seekBar.addEventListener('change', () => { isDraggingSeek = false; player.currentTime = seekBar.value; });
 
-        // 제스처
+        // --- 제스처 로직 수정 (4배속 추가) ---
+        let longPressTimer = null;
+        let savedSpeed = 1.0;
+        let isSpeeding = false;
+        
         videoWrapper.addEventListener('touchstart', onGestureStart, {passive: false});
         videoWrapper.addEventListener('touchmove', onGestureMove, {passive: false});
         videoWrapper.addEventListener('touchend', onGestureEnd);
         videoWrapper.addEventListener('mousedown', onGestureStart);
         videoWrapper.addEventListener('mousemove', onGestureMove);
         videoWrapper.addEventListener('mouseup', onGestureEnd);
+        videoWrapper.addEventListener('mouseleave', onGestureEnd); // 마우스 이탈 시 종료
 
         function onGestureStart(e) {
             if(e.target.closest('.controls-bar') || e.target.closest('.popup-menu') || e.target.closest('.sub-list-modal') || e.target.tagName === 'BUTTON') return;
-            wasPlayingBeforeDrag = !player.paused;
-            if(wasPlayingBeforeDrag) player.pause();
+            
+            // 초기화
+            isTouching = true;
+            isSpeeding = false;
+            wasPlayingBeforeDrag = !player.paused; // 현재 재생 상태 저장
+            
             touchStartX = (e.type === 'touchstart' ? e.touches[0].clientX : e.clientX);
             touchStartTime = player.currentTime;
-            isTouching = true;
-        }
-        function onGestureMove(e) {
-            if (!isTouching) return;
-            e.preventDefault(); 
-            const currentX = (e.type === 'touchmove' ? e.touches[0].clientX : e.clientX);
-            const diffX = currentX - touchStartX;
-            if (Math.abs(diffX) < 5) return;
-            const timeDiff = diffX * SENSITIVITY;
-            let targetTime = touchStartTime + timeDiff;
-            if (targetTime < 0) targetTime = 0; if (targetTime > player.duration) targetTime = player.duration;
-            seekBar.value = targetTime;
-            document.getElementById('currentTimeText').innerText = formatTime(targetTime);
-            gestureFeedback.style.opacity = '1'; gestureFeedback.innerText = formatTime(targetTime);
-            if (!player.seeking) player.currentTime = targetTime;
-        }
-        function onGestureEnd(e) {
-            if (isTouching) {
-                isTouching = false; gestureFeedback.style.opacity = '0';
-                if(wasPlayingBeforeDrag) player.play();
+            
+            // 4배속 타이머 시작 (재생 중일 때만)
+            if (wasPlayingBeforeDrag) {
+                longPressTimer = setTimeout(() => {
+                    // 터치 후 움직이지 않고 유지 중이라면 4배속 진입
+                    if (isTouching && !isDraggingSeek) {
+                        isSpeeding = true;
+                        savedSpeed = player.playbackRate;
+                        player.playbackRate = 4.0;
+                        gestureFeedback.style.opacity = '1';
+                        gestureFeedback.innerText = '⏩ 4.0x';
+                    }
+                }, 300); // 0.3초 딜레이 (단순 클릭과 구분)
             }
         }
 
+        function onGestureMove(e) {
+            if (!isTouching) return;
+            // 기본 터치 동작 방지 (스크롤 등)
+            if(e.cancelable) e.preventDefault(); 
+            
+            const currentX = (e.type === 'touchmove' ? e.touches[0].clientX : e.clientX);
+            const diffX = currentX - touchStartX;
+
+            // 움직임이 감지되면 (5px 이상)
+            if (Math.abs(diffX) > 5) {
+                // 1. 4배속 취소 (움직이기 시작하면 탐색 모드로 전환)
+                clearTimeout(longPressTimer);
+                if (isSpeeding) {
+                    isSpeeding = false;
+                    player.playbackRate = savedSpeed;
+                    gestureFeedback.style.opacity = '0'; // 피드백 잠시 끔 (탐색 값으로 갱신될 것임)
+                }
+
+                // 2. 탐색(Seek) 시작 처리
+                // 아직 일시정지 하지 않았다면 여기서 일시정지 (탐색 부드럽게)
+                if (wasPlayingBeforeDrag && !player.paused) {
+                    player.pause();
+                }
+
+                // 3. 탐색 로직 수행
+                const timeDiff = diffX * SENSITIVITY;
+                let targetTime = touchStartTime + timeDiff;
+                if (targetTime < 0) targetTime = 0; 
+                if (targetTime > player.duration) targetTime = player.duration;
+                
+                seekBar.value = targetTime;
+                document.getElementById('currentTimeText').innerText = formatTime(targetTime);
+                gestureFeedback.style.opacity = '1'; 
+                gestureFeedback.innerText = formatTime(targetTime);
+                
+                if (!player.seeking) player.currentTime = targetTime;
+            }
+        }
+
+        function onGestureEnd(e) {
+            clearTimeout(longPressTimer); // 타이머 정리
+
+            if (isTouching) {
+                isTouching = false;
+                
+                if (isSpeeding) {
+                    // 4배속 모드였다면 속도 원복
+                    player.playbackRate = savedSpeed;
+                    isSpeeding = false;
+                    gestureFeedback.style.opacity = '0';
+                    // 4배속 후에는 멈추지 않고 계속 재생 유지
+                } else {
+                    // 탐색(드래그) 모드였다면 재생 상태 복구
+                    gestureFeedback.style.opacity = '0';
+                    if(wasPlayingBeforeDrag) player.play();
+                }
+            }
+        }
         // 공통 기능
         function toggleControls() {
             const bar = document.getElementById('controlsBar'); const titleBar = document.getElementById('videoTitleBar');
