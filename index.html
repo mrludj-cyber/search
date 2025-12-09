@@ -8,7 +8,7 @@
     <title>JAV Folder Player (Smart Scan Support)</title>
     <style>
         /* === 기본 스타일 === */
-        body { background-color: #121212; color: #e0e0e0; font-family: sans-serif; margin: 0; padding: 10px; padding-bottom: 50px; }
+        body { background-color: #000000; color: #e0e0e0; font-family: sans-serif; margin: 0; padding: 10px; padding-bottom: 50px; overscroll-behavior-y: none; }
         * { box-sizing: border-box; }
         a { text-decoration: none; color: inherit; }
 
@@ -89,7 +89,25 @@
             position: relative; width: 100%; height: 100%;
             display: flex; align-items: center; justify-content: center; background: #000;
         }
-        video { width: 100%; max-height: 100vh; outline: none; }
+        video { width: 100%; max-height: 100%; object-fit: contain; background-color: #000; outline: none; }
+        video::cue {display: none;}
+
+        .subtitle-overlay {
+            position: absolute;
+            bottom: max(20px, env(safe-area-inset-bottom)); /* 하단 안전영역 위에 배치 */
+            left: 0;
+            width: 100%;
+            text-align: center;
+            color: #fff;
+            font-size: 1.3rem;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px #000;
+            padding: 0 20px;
+            pointer-events: none; /* 터치 통과 */
+            z-index: 2040;
+            line-height: 1.4;
+            white-space: pre-wrap;
+        }
 
         .video-title-bar {
             position: absolute; top: 0; left: 0; width: 100%;
@@ -188,6 +206,7 @@
             <div id="gestureFeedback" class="gesture-overlay">00:00</div>
             
             <video id="mainPlayer" playsinline onclick="toggleControls()" crossorigin="anonymous"></video>
+            <div id="customSubTitle" class="subtitle-overlay"></div> 
             <button class="top-close-btn" onclick="closeModal()">✕</button>
 
             <!-- 자막 리스트 (속도 싱크용) -->
@@ -502,6 +521,9 @@
             clearSubtitles(); 
             currentSubtitleKey = file.name; // 저장 키로 사용
 
+            const subDisplay = document.getElementById('customSubTitle');
+            subDisplay.innerHTML = '';
+
             const reader = new FileReader();
             reader.onload = function(e) {
                 let content = e.target.result;
@@ -538,7 +560,16 @@
                     }
 
                     renderSubList(cues); // 리스트 렌더링
-                    this.track.mode = 'showing';
+                    this.track.mode = 'hidden';
+
+                    this.track.oncuechange = function() {
+                        const activeCues = this.activeCues;
+                        if (activeCues && activeCues.length > 0) {
+                            subDisplay.innerHTML = activeCues[0].text.replace(/\n/g, '<br>');
+                        } else {
+                            subDisplay.innerHTML = '';
+                        }
+                    };
                 };
                 player.appendChild(track);
                 if(!isAuto && !localStorage.getItem('sub_factor_' + currentSubtitleKey)) {
@@ -547,6 +578,10 @@
                 }
             };
             reader.readAsText(file, 'UTF-8');
+        }
+        function getCues() {
+            const tracks = Array.from(player.textTracks).filter(t => t.mode === 'showing' || t.mode === 'hidden');
+            return (tracks.length > 0) ? tracks[0].cues : null;
         }
         function loadSubtitleManual(input) { if (input.files && input.files[0]) readAndAttachSubtitle(input.files[0], false); }
         function closeModal() { if (document.fullscreenElement) document.exitFullscreen(); modal.style.display = 'none'; player.pause(); clearSubtitles(); player.src = ""; }
