@@ -96,6 +96,12 @@
         .video-wrapper {
             position: relative; width: 100%; height: 100%;
             display: flex; align-items: center; justify-content: center; background: #000;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            -khtml-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
         }
         video { width: 100%; height: 100%; object-fit: contain; background-color: #000; outline: none; }
         video::cue {display: none;}
@@ -754,6 +760,8 @@
         let longPressTimer = null;
         let savedSpeed = 1.0;
         let isSpeeding = false;
+
+        videoWrapper.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; });
         
         videoWrapper.addEventListener('touchstart', onGestureStart, {passive: false});
         videoWrapper.addEventListener('touchmove', onGestureMove, {passive: false});
