@@ -36,14 +36,24 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
             position: sticky; top: 0; z-index: 100;
         }
-        .custom-file-upload {
-            display: inline-block; padding: 12px 25px; cursor: pointer;
-            background-color: #0d6efd; color: white; border-radius: 6px;
-            font-weight: bold; font-size: 1rem; transition: background 0.2s;
+        .custom-file-upload, .btn-action {
+            display: inline-flex; align-items: center; justify-content: center;
+            padding: 10px 20px; cursor: pointer; border-radius: 6px;
+            font-weight: bold; font-size: 0.95rem; transition: background 0.2s; border: none; color: white;
         }
         .custom-file-upload:hover { background-color: #0b5ed7; }
         input[type="file"] { display: none; }
         .status-msg { margin-top: 10px; color: #aaa; font-size: 0.9rem; }
+        
+        /* [추가] 히스토리 버튼(보라색) 및 뱃지 스타일 */
+        .btn-history { background-color: #6f42c1; }
+        .btn-history:hover { background-color: #59359a; }
+        .history-badge { background: #6f42c1; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; vertical-align: middle; margin-left: 5px; display: none; }
+
+        /* [추가] 히스토리 아이템 테두리 및 삭제 버튼 */
+        .item.history-item { border: 1px solid #6f42c1; }
+        .btn-search { background-color: #0dcaf0; color: #000; }
+        .btn-delete-hist { background-color: #333; color: #aaa; max-width: 30px;}
 
         /* === 2. 그리드 리스트 === */
         .container {
@@ -79,6 +89,8 @@
             font-weight: bold; font-size: 0.8rem; display: flex; align-items: center; justify-content: center;
             z-index: 10; pointer-events: none;
         }
+        .btn-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+                  
         .btn-group { display: flex; gap: 4px; margin-top: auto; }
         .action-btn {
             flex: 1; padding: 10px 0; border: none; border-radius: 4px;
@@ -205,15 +217,29 @@
 <body>
     <div class="main-wrapper">
         <div class="control-panel">
-            <label for="folder-upload" class="custom-file-upload">
-                📂 폴더 선택 (Select Folder)
-            </label>
+            <div class="btn-row">
+                <label for="folder-upload" class="custom-file-upload">
+                    📂 폴더 스캔 (Scan)
+                </label>
+                <!-- [추가] 히스토리 버튼 -->
+                <button class="btn-action btn-history" onclick="toggleHistoryMode()">
+                    📜 히스토리 <span id="historyCount" class="history-badge">0</span>
+                </button>
+            </div>
+            
             <input id="folder-upload" type="file" webkitdirectory directory multiple />
-            <button class="btn-danger" style="margin-left:10px; padding:10px; background:#dc3545; border:none; color:white; border-radius:6px; cursor:pointer;" onclick="clearThumbnailCache()">
-                🗑️ 썸네일 캐시 삭제
-            </button>
-            <div id="cacheStatus" style="font-size:0.8rem; color:#888; margin-top:5px;"></div>
-            <div id="status" class="status-msg">폴더를 선택하면 영상 목록을 스캔합니다.</div>
+        
+            <div class="btn-row" style="margin-top:10px;">
+                    <button class="btn-action btn-danger" onclick="clearThumbnailCache()">
+                    🗑️ 캐시 삭제
+                </button>
+                <!-- [추가] 히스토리 초기화 버튼 -->
+                <button class="btn-action btn-danger" style="background:#b02a37" onclick="clearHistory()">
+                    💣 히스토리 초기화
+                </button>
+            </div>
+            <div id="cacheStatus" class="status-msg">DB 준비 중...</div>
+            <div id="status" class="status-msg" style="color:#fff; margin-top:8px;">폴더를 선택하면 영상 목록을 스캔합니다.</div>
         </div>
     
         <div id="gallery" class="container"></div>
@@ -296,17 +322,21 @@
     </div>
 
     <script>
-        // === IndexedDB (썸네일 캐시) 설정 ===
-        const DB_NAME = 'JavThumbDB', STORE_NAME = 'thumbnails';
+        // === IndexedDB (썸네일 + 히스토리) 설정 ===
+        const DB_NAME = 'JavPlayerDB_V2', THUMB_STORE = 'thumbnails', HISTORY_STORE = 'history';
         let db;
+        let isHistoryMode = false;
     
         function initDB() {
-            const req = indexedDB.open(DB_NAME, 1);
+            const req = indexedDB.open(DB_NAME, 2); // 버전 2로 변경
             req.onupgradeneeded = e => {
-                if (!e.target.result.objectStoreNames.contains(STORE_NAME)) 
-                    e.target.result.createObjectStore(STORE_NAME);
+                const d = e.target.result;
+                if (!d.objectStoreNames.contains(THUMB_STORE)) 
+                    d.createObjectStore(THUMB_STORE); 
+                if (!d.objectStoreNames.contains(HISTORY_STORE))
+                    d.createObjectStore(HISTORY_STORE, { keyPath: 'filename' }); // 히스토리 스토어 추가
             };
-            req.onsuccess = e => { db = e.target.result; updateCacheStatus(); };
+            req.onsuccess = e => { db = e.target.result; updateCacheStatus(); updateHistoryCount(); };
         }
         initDB();
     
@@ -315,20 +345,92 @@
         // 캐시 상태 표시
         function updateCacheStatus() {
             if (!db) return;
-            const req = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).count();
-            req.onsuccess = () => {
-                const el = document.getElementById('cacheStatus');
-                if(el) el.innerText = `저장된 로컬 썸네일: ${req.result}개`;
+            const t = db.transaction(THUMB_STORE, 'readonly').objectStore(THUMB_STORE).count();
+            t.onsuccess = () => { document.getElementById('cacheStatus').innerText = `저장된 썸네일: ${t.result}개`; };
+        }
+
+        function updateHistoryCount() {
+            if(!db) return;
+            const t = db.transaction(HISTORY_STORE, 'readonly').objectStore(HISTORY_STORE).count();
+            t.onsuccess = () => {
+                const span = document.getElementById('historyCount');
+                if(t.result > 0) { span.innerText = t.result; span.style.display = 'inline-block'; } 
+                else { span.style.display = 'none'; }
             };
         }
         
         // 캐시 삭제 함수
         function clearThumbnailCache() {
-            if (!confirm("저장된 썸네일 캐시를 모두 삭제하시겠습니까?")) return;
-            const tx = db.transaction(STORE_NAME, 'readwrite');
-            tx.objectStore(STORE_NAME).clear();
-            tx.oncomplete = () => { alert("삭제되었습니다."); updateCacheStatus(); };
+            if (!confirm("저장된 썸네일 캐시를 삭제하시겠습니까? (히스토리는 유지됩니다)")) return;
+            const tx = db.transaction(THUMB_STORE, 'readwrite');
+            tx.objectStore(THUMB_STORE).clear();
+            tx.oncomplete = () => { alert("캐시 삭제됨"); updateCacheStatus(); };
         }
+
+        function clearHistory() {
+            if (!confirm("⚠️ 시청 기록(히스토리)을 모두 삭제하시겠습니까?")) return;
+            const tx = db.transaction(HISTORY_STORE, 'readwrite');
+            tx.objectStore(HISTORY_STORE).clear();
+            tx.oncomplete = () => { alert("히스토리 초기화됨"); updateHistoryCount(); if(isHistoryMode) renderHistoryView(); };
+        }
+
+        // [핵심] 히스토리 저장 함수
+        function addToHistory(filename, title, fileId, thumbnailBlob) {
+            if(!db) return;
+            const tx = db.transaction(HISTORY_STORE, 'readwrite');
+            tx.objectStore(HISTORY_STORE).put({
+                filename: filename, title: title, fileId: fileId,
+                thumbnail: thumbnailBlob, timestamp: new Date().getTime()
+            });
+            tx.oncomplete = updateHistoryCount;
+        }
+
+        function deleteFromHistory(filename) {
+            if(!confirm("삭제하시겠습니까?")) return;
+            const tx = db.transaction(HISTORY_STORE, 'readwrite');
+            tx.objectStore(HISTORY_STORE).delete(filename);
+            tx.oncomplete = () => { renderHistoryView(); updateHistoryCount(); };
+        }
+        
+        // [추가] 히스토리 모드 렌더링 함수
+        function toggleHistoryMode() {
+            isHistoryMode = !isHistoryMode;
+            const gallery = document.getElementById('gallery');
+            const status = document.getElementById('status');
+            if(isHistoryMode) {
+                status.innerText = "📚 히스토리 모드";
+                renderHistoryView();
+            } else {
+                status.innerText = "📂 스캔 모드";
+                gallery.innerHTML = '<div style="color:#777; padding:20px; text-align:center;">폴더를 다시 스캔해주세요.</div>';
+            }
+        }
+
+        function renderHistoryView() {
+            if(!db) return;
+            const gallery = document.getElementById('gallery');
+            gallery.innerHTML = '';
+            const tx = db.transaction(HISTORY_STORE, 'readonly').objectStore(HISTORY_STORE).getAll();
+            tx.onsuccess = () => {
+                const list = tx.result;
+                if(!list || list.length === 0) { gallery.innerHTML = '<div style="color:#777; padding:20px;">기록 없음</div>'; return; }
+                list.reverse().forEach(item => {
+                    const thumbUrl = URL.createObjectURL(item.thumbnail);
+                    const targetUrl = `https://missav.live/ko/${item.fileId}`;
+                    gallery.insertAdjacentHTML('beforeend', `
+                        <div class="item history-item">
+                            <div class="filename" style="color:#b197fc">${item.filename}</div>
+                            <div class="video-title">${item.title || item.fileId}</div>
+                            <div class="media-container" onclick="window.open('${targetUrl}', '_blank')"><img src="${thumbUrl}" class="media-content"></div>
+                            <div class="btn-group">
+                                <button class="action-btn btn-search" onclick="window.open('${targetUrl}', '_blank')">🔍 재검색</button>
+                                <button class="action-btn btn-delete-hist" onclick="deleteFromHistory('${item.filename}')">✕</button>
+                            </div>
+                        </div>`);
+                });
+            };
+        }
+
         // === 전역 변수 ===
         let loadedVideos = [];
         let subtitleMap = {};
@@ -467,9 +569,11 @@
                             <img src="${uncThumb}" 
                                 data-fallback="${stdThumb}" 
                                 data-index="${index}"
+                                data-fileid="${fileId}"
                                 class="media-content"
                                 onclick="playWebPreview('${divId}', '${uncPrev}', '${targetUrl}')"
                                 onerror="onThumbnailError(this)"
+                                onload="onWebThumbLoad(this)"
                             >
                         </div>
                         <div class="btn-group">
@@ -915,111 +1019,134 @@
         function toggleFullscreen() { if (!document.fullscreenElement) videoWrapper.requestFullscreen().catch(() => {}); else document.exitFullscreen(); }
         
         function srtToVtt(srt) { return "WEBVTT\n\n" + srt.replace(/(\d{2}):(\d{2}):(\d{2}),(\d{3})/g, '$1:$2:$3.$4'); }
-/* === 썸네일 에러 처리 및 로컬 생성/캐싱 로직 === */
-    async function onThumbnailError(img) {
-        const index = img.dataset.index;
-        const file = loadedVideos[index];
-        if (!file) return;
 
-        // 1. DB 캐시 확인
-        if (db) {
-            const key = getCacheKey(file);
-            const getReq = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(key);
-            getReq.onsuccess = () => {
-                if (getReq.result) {
-                    // 캐시 있으면 사용
-                    const url = URL.createObjectURL(getReq.result);
-                    img.src = url;
-                    img.onload = () => URL.revokeObjectURL(url);
-                    img.onerror = null; // 더 이상 에러 체크 안 함
-                } else {
-                    // 캐시 없으면 다음 단계 진행
-                    tryNextFallback(img);
-                }
-            };
-        } else {
-            tryNextFallback(img);
-        }
-    }
-
-    function tryNextFallback(img) {
-        const fallbackUrl = img.dataset.fallback;
-        const currentSrc = img.getAttribute('src');
-
-        // 2. 외부 2차 이미지(Standard) 시도
-        if (fallbackUrl && currentSrc !== fallbackUrl && !img.dataset.triedLocal) {
-            img.src = fallbackUrl;
-            // 뱃지 숨기기 (옵션)
-            const container = img.closest('.media-container');
-            if(container && container.querySelector('.badge-no')) 
-                container.querySelector('.badge-no').style.display = 'none';
-        } 
-        // 3. 로컬 생성 시도
-        else {
-            img.onerror = null;
-            img.dataset.triedLocal = "true";
-            img.style.opacity = "0.3"; // 로딩 중 표시
-            thumbObserver.observe(img); // 화면에 보일 때 생성 시작
-        }
-    }
-
-    // 화면에 보일 때만 생성 (성능 최적화)
-    const thumbObserver = new IntersectionObserver((entries, obs) => {
-        entries.forEach(e => {
-            if (e.isIntersecting) {
-                generateLocalThumbnail(e.target);
-                obs.unobserve(e.target);
-            }
-        });
-    }, { rootMargin: '200px' });
-
-    async function generateLocalThumbnail(imgEl) {
-        const index = imgEl.dataset.index;
-        const file = loadedVideos[index];
-        if (!file) return;
-
-        const video = document.createElement('video');
-        video.src = URL.createObjectURL(file);
-        video.muted = true;
-        video.playsInline = true;
-        video.currentTime = 15; // 15초 지점 캡처
-
-        const capture = () => {
+    // === 썸네일 처리 및 히스토리 저장 연동 ===
+    
+        // [신규] 웹 이미지가 로딩되면 히스토리에 자동 저장
+        function onWebThumbLoad(img) {
+            const index = img.dataset.index;
+            const file = loadedVideos[index];
+            const fileId = img.dataset.fileid;
+            
+            // 히스토리 모드거나, 파일 정보가 없으면 저장하지 않음
+            if(!file || !fileId || isHistoryMode) return;
+    
             try {
                 const cvs = document.createElement('canvas');
-                const scale = 320 / video.videoWidth; // 너비 320px 고정
-                cvs.width = 320;
-                cvs.height = video.videoHeight * scale;
-                cvs.getContext('2d').drawImage(video, 0, 0, cvs.width, cvs.height);
-
+                cvs.width = img.naturalWidth;
+                cvs.height = img.naturalHeight;
+                cvs.getContext('2d').drawImage(img, 0, 0);
+                
                 cvs.toBlob(blob => {
-                    if (blob) {
-                        // 1. 이미지 교체
-                        const url = URL.createObjectURL(blob);
-                        imgEl.src = url;
-                        imgEl.style.opacity = "1";
+                    const currentTitle = titleCache[index] || "제목 없음";
+                    addToHistory(file.name, currentTitle, fileId, blob);
+                }, 'image/jpeg', 0.8);
+            } catch(e) { console.log("Web thumb save fail", e); }
+        }
+    
+        // [수정] 썸네일 에러 시 처리 (로컬 캐시 확인 -> 히스토리 저장)
+        async function onThumbnailError(img) {
+            const index = img.dataset.index;
+            const file = loadedVideos[index];
+            if (!file) return;
+    
+            if (db) {
+                const key = getCacheKey(file);
+                const getReq = db.transaction(THUMB_STORE, 'readonly').objectStore(THUMB_STORE).get(key);
+                getReq.onsuccess = () => {
+                    if (getReq.result) {
+                        const url = URL.createObjectURL(getReq.result);
+                        img.src = url;
+                        img.onload = () => URL.revokeObjectURL(url);
+                        img.onerror = null;
                         
-                        // 2. DB 저장
-                        if(db) {
-                            const tx = db.transaction(STORE_NAME, 'readwrite');
-                            tx.objectStore(STORE_NAME).put(blob, getCacheKey(file));
-                            tx.oncomplete = updateCacheStatus;
-                        }
+                        // 캐시에 있으면 히스토리에도 백업 저장
+                        const fileId = img.dataset.fileid || "unknown";
+                        addToHistory(file.name, titleCache[index] || "제목 없음", fileId, getReq.result);
+                    } else {
+                        tryNextFallback(img);
                     }
-                    URL.revokeObjectURL(video.src);
-                    video.remove();
-                }, 'image/jpeg', 0.7);
-            } catch (e) {
-                console.error(e);
-                URL.revokeObjectURL(video.src);
+                };
+            } else {
+                tryNextFallback(img);
             }
-        };
-
-        video.onloadeddata = () => { if(video.duration < 15) video.currentTime = video.duration * 0.5; };
-        video.onseeked = capture;
-        video.onerror = () => URL.revokeObjectURL(video.src);
-        video.load();
-    }
+        }
+    
+        function tryNextFallback(img) {
+            const fallbackUrl = img.dataset.fallback;
+            const currentSrc = img.getAttribute('src');
+    
+            if (fallbackUrl && currentSrc !== fallbackUrl && !img.dataset.triedLocal) {
+                img.src = fallbackUrl;
+                const container = img.closest('.media-container');
+                if(container && container.querySelector('.badge-no')) 
+                    container.querySelector('.badge-no').style.display = 'none';
+            } else {
+                img.onerror = null;
+                img.dataset.triedLocal = "true";
+                img.style.opacity = "0.3";
+                thumbObserver.observe(img);
+            }
+        }
+    
+        const thumbObserver = new IntersectionObserver((entries, obs) => {
+            entries.forEach(e => {
+                if (e.isIntersecting) {
+                    generateLocalThumbnail(e.target);
+                    obs.unobserve(e.target);
+                }
+            });
+        }, { rootMargin: '200px' });
+    
+        async function generateLocalThumbnail(imgEl) {
+            const index = imgEl.dataset.index;
+            const file = loadedVideos[index];
+            if (!file) return;
+    
+            const video = document.createElement('video');
+            video.src = URL.createObjectURL(file);
+            video.muted = true;
+            video.playsInline = true;
+            video.currentTime = 15; 
+    
+            const capture = () => {
+                try {
+                    const cvs = document.createElement('canvas');
+                    const scale = 320 / video.videoWidth; 
+                    cvs.width = 320;
+                    cvs.height = video.videoHeight * scale;
+                    cvs.getContext('2d').drawImage(video, 0, 0, cvs.width, cvs.height);
+    
+                    cvs.toBlob(blob => {
+                        if (blob) {
+                            const url = URL.createObjectURL(blob);
+                            imgEl.src = url;
+                            imgEl.style.opacity = "1";
+                            
+                            if(db) {
+                                const tx = db.transaction(THUMB_STORE, 'readwrite');
+                                tx.objectStore(THUMB_STORE).put(blob, getCacheKey(file));
+                                updateCacheStatus();
+                                
+                                // [추가됨] 로컬 생성본도 히스토리에 저장
+                                const fileId = imgEl.dataset.fileid || "unknown";
+                                addToHistory(file.name, titleCache[index] || "제목 없음", fileId, blob);
+                            }
+                        }
+                        URL.revokeObjectURL(video.src);
+                        video.remove();
+                    }, 'image/jpeg', 0.7);
+                } catch (e) {
+                    console.error(e);
+                    URL.revokeObjectURL(video.src);
+                }
+            };
+            video.onloadeddata = () => { if(video.duration < 15) video.currentTime = video.duration * 0.5; };
+            video.onseeked = capture;
+            video.onerror = () => URL.revokeObjectURL(video.src);
+            video.load();
+        }  
+  
     </script>
 </body>
 </html>
