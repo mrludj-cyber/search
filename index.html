@@ -5,7 +5,7 @@
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#000000">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>JAV Folder Player (Smart Scan Support)</title>
+    <title>Folder Player (Smart Scan Support)</title>
     <style>
         /* === 기본 스타일 === */
         html { background-color: #000000; height: 100%; }
@@ -259,6 +259,18 @@
         .preview-image {
             display: block; width: 100%; height: auto; object-fit: contain;
         }
+        .cache-status-badge {
+            position: absolute; bottom: 5px; right: 5px; width: 18px; height: 18px;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-size: 10px; z-index: 15; background: rgba(0,0,0,0.7);
+            border: 1px solid rgba(255,255,255,0.2); pointer-events: none;
+        }
+        .status-syncing {
+            background: #0d6efd; border-color: #fff;
+            box-shadow: 0 0 5px #0d6efd; animation: pulse 1s infinite alternate;
+        }
+        .status-completed { background: #198754; border-color: #fff; color: #fff; }
+        @keyframes pulse { from { transform: scale(0.9); opacity: 0.8; } to { transform: scale(1.1); opacity: 1; } }
     </style>
 </head>
 <body>
@@ -380,11 +392,18 @@
         let isHistoryMode = false;
         
         function initDB() {
-            const req = indexedDB.open(DB_NAME, 2);
+            // 버전 2 -> 3으로 증가 (스키마 변경을 위해 필수)
+            const req = indexedDB.open(DB_NAME, 3);
+            
             req.onupgradeneeded = e => {
                 const d = e.target.result;
                 if (!d.objectStoreNames.contains(THUMB_STORE)) d.createObjectStore(THUMB_STORE);
-                if (!d.objectStoreNames.contains(HISTORY_STORE)) d.createObjectStore(HISTORY_STORE, { keyPath: 'filename' });
+                
+                // 기존 history 스토어가 있다면 삭제하고 새로 생성 (KeyPath 변경: filename -> path)
+                if (d.objectStoreNames.contains(HISTORY_STORE)) {
+                    d.deleteObjectStore(HISTORY_STORE);
+                }
+                d.createObjectStore(HISTORY_STORE, { keyPath: 'path' });
             };
             req.onsuccess = e => { db = e.target.result; updateCacheStatus(); updateHistoryCount(); };
         }
@@ -418,40 +437,56 @@
             tx.objectStore(HISTORY_STORE).clear();
             tx.oncomplete = () => { alert("초기화됨"); updateHistoryCount(); if(isHistoryMode) renderHistoryView(); };
         }
-        function addToHistory(filename, title, fileId, path, thumbnailBlob = null) {
+        function addToHistory(filename, title, fileId, path, thumbnailBlob = null, fileMeta = null) {
             if(!db) return;
             const tx = db.transaction(HISTORY_STORE, 'readwrite');
             const store = tx.objectStore(HISTORY_STORE);
-            const getReq = store.get(filename);
+            
+            // path를 기준으로 조회 (파일명 중복 문제 해결)
+            const getReq = store.get(path);
+            
             getReq.onsuccess = () => {
                 const existing = getReq.result;
                 const finalThumb = thumbnailBlob || (existing ? existing.thumbnail : null);
+                
+                // 메타데이터(크기, 수정일) 필수 저장
+                // fileMeta가 없으면 기존 데이터 사용, 그래도 없으면 0
+                const finalSize = fileMeta ? fileMeta.size : (existing ? existing.size : 0);
+                const finalMod = fileMeta ? fileMeta.lastModified : (existing ? existing.lastModified : 0);
+
                 let finalTitle = title;
-                // 기존 제목이 유효하고 새 제목이 미정이면 기존 제목 유지
+                // 기존 제목이 유효하면 유지
                 if (existing && existing.title && existing.title !== "제목 확인 중..." && existing.title !== "ID 추출 실패" && (title === "제목 확인 중..." || title === "ID 추출 실패")) {
                     finalTitle = existing.title;
                 }
+                
                 store.put({
-                    filename: filename, title: finalTitle, fileId: fileId, path: path,
-                    thumbnail: finalThumb, timestamp: existing ? existing.timestamp : new Date().getTime()
+                    path: path, // KeyPath (고유값)
+                    filename: filename, 
+                    title: finalTitle, 
+                    fileId: fileId, 
+                    thumbnail: finalThumb, 
+                    size: finalSize, 
+                    lastModified: finalMod,
+                    timestamp: existing ? existing.timestamp : new Date().getTime()
                 });
             };
             tx.oncomplete = updateHistoryCount;
         }
-        function updateHistoryTitle(filename, newTitle) {
+        function updateHistoryTitle(path, newTitle) {
             if(!db) return;
             const tx = db.transaction(HISTORY_STORE, 'readwrite');
             const store = tx.objectStore(HISTORY_STORE);
-            const req = store.get(filename);
+            const req = store.get(path); // 경로로 조회
             req.onsuccess = () => {
                 const item = req.result;
                 if(item) { item.title = newTitle; store.put(item); }
             };
         }
-        function deleteFromHistory(filename) {
+        function deleteFromHistory(path) {
             if(!confirm("삭제하시겠습니까?")) return;
             const tx = db.transaction(HISTORY_STORE, 'readwrite');
-            tx.objectStore(HISTORY_STORE).delete(filename);
+            tx.objectStore(HISTORY_STORE).delete(path); // 경로로 삭제
             tx.oncomplete = () => { renderHistoryView(); updateHistoryCount(); };
         }
         
@@ -492,7 +527,7 @@
                 const fileId = fileInfo.id;
                 const fullPath = file.webkitRelativePath || file.name;
                 
-                addToHistory(file.name, "제목 확인 중...", fileId, fullPath, null);
+                addToHistory(file.name, "제목 확인 중...", fileId, fullPath, null, {size: file.size, lastModified: file.lastModified});
         
                 const uncensoredId = fileId + "-uncensored-leak";        
                 const divId = `media-${index}`;
@@ -519,11 +554,12 @@
                 gallery.insertAdjacentHTML('beforeend', itemHtml);
                 
                 if (fileInfo.isRecognized) {
-                    // [중요] 스캔 모드 큐 추가 (type: 'scan')
-                    addToQueue({ type: 'scan', id: fileId, index: index, filename: file.name });
+                    // [수정] 큐에 path 정보 추가 (제목 업데이트 시 필요)
+                    addToQueue({ type: 'scan', id: fileId, index: index, filename: file.name, path: fullPath });
                 } else {
                     document.getElementById(`title-${index}`).innerText = "ID 추출 실패";
-                    updateHistoryTitle(file.name, "ID 추출 실패");
+                    // [수정] 제목 업데이트 시 fullPath 사용
+                    updateHistoryTitle(fullPath, "ID 추출 실패");
                 }
             });
         });
@@ -598,7 +634,7 @@
                     // 스캔 모드면 캐시 저장
                     if (item.type === 'scan') titleCache[item.index] = cleanTitle;
                     // [중요] DB 업데이트 (히스토리)
-                    updateHistoryTitle(item.filename, cleanTitle);
+                    updateHistoryTitle(item.path || item.filename, cleanTitle);
                     return;
                 }
                 throw new Error("Parse Fail");
@@ -656,7 +692,6 @@
                     return;
                 }
         
-                // 1. 그룹화
                 const groups = {};
                 list.forEach(item => {
                     let folderName = "기타 (경로 없음)";
@@ -669,69 +704,89 @@
                     groups[folderName].push(item);
                 });
         
-                // 2. 렌더링
                 gallery.innerHTML = '';
                 const sortedFolders = Object.keys(groups).sort();
-                let globalIndex = 0; // DOM ID 생성을 위한 전역 인덱스
+                let globalIndex = 0;
         
                 sortedFolders.forEach((folder, folderIdx) => {
-                    const items = groups[folder].reverse(); // 최신순
+                    const items = groups[folder].reverse();
                     const folderId = `folder-content-${folderIdx}`;
                     
-                    // 폴더 헤더
                     const headerHtml = `
                         <div class="history-folder-group">
                             <div class="history-folder-header" onclick="toggleFolder('${folderId}')">
                                 <span>📂 ${folder}</span>
                                 <span style="font-size:0.8rem; color:#888;">${items.length}개</span>
                             </div>
-                            <div id="${folderId}" class="history-folder-content">
-                                <!-- 아이템들이 여기에 들어감 -->
-                            </div>
+                            <div id="${folderId}" class="history-folder-content"></div>
                         </div>`;
                     gallery.insertAdjacentHTML('beforeend', headerHtml);
                     
-                    // 폴더 내부 아이템 생성
                     const contentDiv = document.getElementById(folderId);
                     items.forEach(item => {
-                        const domId = `hist-title-${globalIndex++}`;
+                        const domTitleId = `hist-title-${globalIndex}`;
+                        const domMediaId = `hist-media-${globalIndex}`; // [신규] 미디어 컨테이너용 고유 ID
+                        globalIndex++;
                         
                         let thumbSrc = "";
                         let isLocal = false;
-                        if (item.thumbnail) { thumbSrc = URL.createObjectURL(item.thumbnail); isLocal = true; }
-                        else { thumbSrc = `https://wsrv.nl/?url=fourhoi.com/${item.fileId}-uncensored-leak/cover-t.jpg&q=70`; }
-        
+                        let clickAction = "";
+
+                        // [중요] 1. 로컬 썸네일인 경우 (4분할 프리뷰 연결)
+                        if (item.thumbnail) { 
+                            thumbSrc = URL.createObjectURL(item.thumbnail); 
+                            isLocal = true; 
+                            
+                            // [수정] item.name 대신 item.filename 사용 (DB에 저장된 필드명은 filename임)
+                            if(item.size && item.lastModified) {
+                                // 문자열에 따옴표 처리 주의
+                                clickAction = `onclick="openHistoryLocalPreview('${item.filename.replace(/'/g, "\\'")}', ${item.size}, ${item.lastModified})"`;
+                            } else {
+                                clickAction = `onclick="alert('메타데이터가 없습니다. 다시 스캔해주세요.')"`;
+                            }
+                        } 
+                        // [중요] 2. 웹 썸네일인 경우 (샘플 영상 재생 연결)
+                        else { 
+                            const uncensoredId = item.fileId + "-uncensored-leak";
+                            thumbSrc = `https://wsrv.nl/?url=fourhoi.com/${uncensoredId}/cover-t.jpg&q=70`; 
+                            const targetUrl = `https://missav.live/ko/${item.fileId}`;
+                            const previewVideoUrl = `https://fourhoi.com/${uncensoredId}/preview.mp4`;
+
+                            // [수정] playWebPreview 호출 (ID 전달)
+                            clickAction = `onclick="playWebPreview('${domMediaId}', '${previewVideoUrl}', '${targetUrl}')"`;
+                        }
+
                         const stdThumb = `https://wsrv.nl/?url=fourhoi.com/${item.fileId}/cover-t.jpg&q=70`;
                         const targetUrl = `https://missav.live/ko/${item.fileId}`;
                         
-                        // 제목 상태 확인 및 큐 추가
                         let displayTitle = item.title;
                         if (!displayTitle || displayTitle === "제목 확인 중...") {
                             displayTitle = "제목 확인 중...";
-                            // [중요] 히스토리 렌더링 시 제목 없으면 자동으로 큐에 추가
                             if (item.fileId && item.fileId !== "unknown" && item.title !== "ID 추출 실패") {
-                                addToQueue({ type: 'history', id: item.fileId, domId: domId, filename: item.filename });
+                                addToQueue({ type: 'history', id: item.fileId, domId: domTitleId, filename: item.filename, path: item.path });
                             }
                         }
-        
-                        // 경로 정보 alert용
                         const folderInfo = item.path ? item.path.replace(item.filename, '') : "경로 정보 없음";
-        
+
                         const itemHtml = `
                             <div class="item history-item">
                                 <div class="filename" style="color:#b197fc; cursor:pointer; text-decoration:underline;" 
-                                     onclick="alert('📂 원래 위치:\\n${folderInfo}')">
+                                        onclick="alert('📂 원래 위치:\\n${folderInfo}')">
                                     ${item.filename}
                                 </div>
-                                <div class="video-title" id="${domId}">${displayTitle}</div>
-                                <div class="media-container" onclick="window.open('${targetUrl}', '_blank')">
+                                <div class="video-title" id="${domTitleId}">${displayTitle}</div>
+                                
+                                <!-- ID 부여 및 클릭 액션 적용 -->
+                                <div id="${domMediaId}" class="media-container" ${clickAction} style="cursor:pointer;">
                                     <img src="${thumbSrc}" class="media-content" style="opacity:${isLocal?1:0.8}"
-                                         onerror="onHistoryThumbError(this, '${stdThumb}')">
+                                            onerror="onHistoryThumbError(this, '${stdThumb}')">
                                     ${!isLocal ? '<div class="badge-no" style="background:#555; right:5px; left:auto; width:auto; padding:0 5px; border-radius:4px;">Web</div>' : ''}
+                                    ${isLocal ? '<div class="cache-status-badge status-completed">✅</div>' : ''}
                                 </div>
+
                                 <div class="btn-group">
                                     <button class="action-btn btn-search" onclick="window.open('${targetUrl}', '_blank')">🔍 GO</button>
-                                    <button class="action-btn btn-delete-hist" onclick="deleteFromHistory('${item.filename}')">✕</button>
+                                    <button class="action-btn btn-delete-hist" onclick="deleteFromHistory('${item.path.replace(/'/g, "\\'")}')">✕</button>
                                 </div>
                             </div>`;
                         contentDiv.insertAdjacentHTML('beforeend', itemHtml);
@@ -739,7 +794,45 @@
                 });
             };
         }
-        
+        function openHistoryLocalPreview(filename, size, lastModified) {
+            // [수정] getCacheKey는 file.name을 사용하므로, name 속성에 filename을 할당해야 함
+            const dummyFile = { name: filename, size: size, lastModified: lastModified };
+            const previewKey = getCacheKey(dummyFile) + "_preview";
+            
+            const modal = document.getElementById('previewModal');
+            const img = document.getElementById('previewImage');
+            const loading = document.getElementById('previewLoading');
+
+            img.style.display = 'none';
+            img.src = '';
+            loading.style.display = 'block';
+            modal.style.display = 'flex';
+            
+            if(!db) { alert("DB 미로드"); return; }
+
+            const req = db.transaction(THUMB_STORE, 'readonly').objectStore(THUMB_STORE).get(previewKey);
+            req.onsuccess = () => {
+                if (req.result) {
+                    img.src = URL.createObjectURL(req.result);
+                    img.style.display = 'block';
+                    loading.style.display = 'none';
+                } else {
+                    // 프리뷰가 없으면 원본 썸네일이라도 보여주기 시도
+                    const mainKey = getCacheKey(dummyFile);
+                    const mainReq = db.transaction(THUMB_STORE, 'readonly').objectStore(THUMB_STORE).get(mainKey);
+                    mainReq.onsuccess = () => {
+                        if(mainReq.result) {
+                            img.src = URL.createObjectURL(mainReq.result);
+                            img.style.display = 'block';
+                            loading.style.display = 'none';
+                        } else {
+                            alert("저장된 미리보기가 없습니다. (파일을 다시 스캔하면 생성됩니다)");
+                            closePreviewModal();
+                        }
+                    }
+                }
+            };
+        }
         // 폴더 토글 함수
         function toggleFolder(id) {
             const el = document.getElementById(id);
@@ -790,39 +883,76 @@
             const file = loadedVideos[index];
             if (!file) return;
 
+            // 이미 처리 중이면 중복 실행 방지
+            if (img.dataset.processing) return;
+
+            // 상태 아이콘 표시 함수
+            const updateIcon = (status) => {
+                let iconHtml = '';
+                if (status === 'syncing') iconHtml = '<div class="cache-status-badge status-syncing">⏳</div>';
+                else if (status === 'completed') iconHtml = '<div class="cache-status-badge status-completed">✅</div>';
+                
+                // 기존 배지 제거 후 추가
+                const parent = img.parentElement;
+                const old = parent.querySelector('.cache-status-badge');
+                if(old) old.remove();
+                if(iconHtml) parent.insertAdjacentHTML('beforeend', iconHtml);
+            };
+
             if (db) {
                 const key = getCacheKey(file);
+                // 1. 썸네일 캐시 확인
                 const getReq = db.transaction(THUMB_STORE, 'readonly').objectStore(THUMB_STORE).get(key);
                 getReq.onsuccess = () => {
                     if (getReq.result) {
-                        // DB에 있다는 것은 로컬에서 생성했다는 뜻 -> 클릭 시 팝업 연결
+                        // 썸네일이 있으면 로드
                         const url = URL.createObjectURL(getReq.result);
                         img.src = url; 
                         img.onload = () => URL.revokeObjectURL(url); 
                         img.onerror = null;
                         
-                        // 클릭 이벤트: 팝업 열기
-                        img.onclick = (e) => {
-                            e.stopPropagation();
-                            openPreviewModal(index);
+                        // 클릭 이벤트: 프리뷰 열기
+                        img.onclick = (e) => { e.stopPropagation(); openPreviewModal(index); };
+                        
+                        // 2. 4분할 프리뷰 캐시 확인 (백그라운드 체크)
+                        const previewKey = key + "_preview";
+                        const prevReq = db.transaction(THUMB_STORE, 'readonly').objectStore(THUMB_STORE).get(previewKey);
+                        prevReq.onsuccess = () => {
+                            if(prevReq.result) updateIcon('completed'); // 이미 있음
+                            else {
+                                // 썸네일은 있는데 프리뷰가 없으면 자동 생성 시작
+                                updateIcon('syncing');
+                                generateFilmstrip(file, (blob) => {
+                                    if(blob) {
+                                        const tx = db.transaction(THUMB_STORE, 'readwrite');
+                                        tx.objectStore(THUMB_STORE).put(blob, previewKey);
+                                        updateIcon('completed');
+                                    }
+                                });
+                            }
                         };
 
-                        // 히스토리 업데이트
+                        // 히스토리 업데이트 (메타데이터 포함)
                         const fileId = img.dataset.fileid || "unknown";
-                        addToHistory(file.name, titleCache[index], fileId, file.webkitRelativePath, getReq.result);
+                        addToHistory(file.name, titleCache[index], fileId, file.webkitRelativePath, getReq.result, {size: file.size, lastModified: file.lastModified});
+
                     } else { 
-                        tryNextFallback(img); 
+                        // DB에도 없으면 생성 프로세스 진입
+                        tryNextFallback(img, updateIcon); 
                     }
                 };
             } else { 
-                tryNextFallback(img); 
+                tryNextFallback(img, updateIcon); 
             }
         }
-        function tryNextFallback(img) {
+        function tryNextFallback(img, statusCallback) {
             const fallbackUrl = img.dataset.fallback;
             const currentSrc = img.getAttribute('src');
+            
             if (fallbackUrl && currentSrc !== fallbackUrl && !img.dataset.triedLocal) {
+                // 웹 이미지 시도
                 img.src = fallbackUrl;
+                // ... (기존 코드와 동일: badge-no 처리 등)
                 const container = img.closest('.media-container');
                 if(container && container.querySelector('.badge-no')) {
                     container.querySelector('.badge-no').style.display = 'none';
@@ -833,10 +963,15 @@
                     img.setAttribute('onclick', newClick);
                 }
             } else {
-                // 더 이상 웹 이미지가 없으면 로컬 생성 시도
+                // 로컬 생성 시도
                 img.onerror = null; 
                 img.dataset.triedLocal = "true"; 
                 img.style.opacity = "0.3";
+                
+                // 생성 중 상태 표시
+                if(statusCallback) statusCallback('syncing');
+                img.dataset.processing = "true"; // 처리 중 플래그
+                
                 thumbObserver.observe(img);
             }
         }
@@ -850,21 +985,23 @@
             const file = loadedVideos[index];
             if (!file) return;
 
+            const updateIcon = (status) => {
+                const parent = imgEl.parentElement;
+                const old = parent.querySelector('.cache-status-badge');
+                if(old) old.remove();
+                if(status === 'completed') parent.insertAdjacentHTML('beforeend', '<div class="cache-status-badge status-completed">✅</div>');
+                else if(status === 'syncing') parent.insertAdjacentHTML('beforeend', '<div class="cache-status-badge status-syncing">⏳</div>');
+            };
+
             const video = document.createElement('video');
             video.src = URL.createObjectURL(file);
-            video.muted = true; 
-            video.playsInline = true; 
-            
-            // 1-1. 메타데이터 로드 전 임시 시간
-            video.currentTime = 1; 
+            video.muted = true; video.playsInline = true; video.currentTime = 1; 
             
             const capture = () => {
                 try {
                     const cvs = document.createElement('canvas');
                     const scale = 320 / video.videoWidth; 
-                    cvs.width = 320; 
-                    cvs.height = video.videoHeight * scale;
-                    
+                    cvs.width = 320; cvs.height = video.videoHeight * scale;
                     cvs.getContext('2d').drawImage(video, 0, 0, cvs.width, cvs.height);
                     
                     cvs.toBlob(blob => {
@@ -872,44 +1009,52 @@
                             const url = URL.createObjectURL(blob);
                             imgEl.src = url; 
                             imgEl.style.opacity = "1";
-                            
-                            // 1-2. 클릭 시 팝업 모달 열기 연결
-                            imgEl.onclick = (e) => {
-                                e.stopPropagation();
-                                openPreviewModal(index);
-                            };
+                            imgEl.onclick = (e) => { e.stopPropagation(); openPreviewModal(index); };
 
-                            // DB 저장
+                            const fileId = imgEl.dataset.fileid || "unknown";
+                            const fullPath = file.webkitRelativePath || file.name;
+
                             if(db) {
+                                // 1. 썸네일 저장
                                 const tx = db.transaction(THUMB_STORE, 'readwrite');
                                 tx.objectStore(THUMB_STORE).put(blob, getCacheKey(file));
-                                updateCacheStatus();
-                                
-                                const fileId = imgEl.dataset.fileid || "unknown";
-                                addToHistory(file.name, titleCache[index], fileId, file.webkitRelativePath, blob);
+                                tx.oncomplete = () => {
+                                    updateCacheStatus(); // [수정] 저장 즉시 개수 업데이트
+                                };
+
+                                // 2. 히스토리 저장
+                                addToHistory(file.name, titleCache[index], fileId, fullPath, blob, {size: file.size, lastModified: file.lastModified});
                             }
+
+                            // 3. 4분할 프리뷰 백그라운드 생성
+                            generateFilmstrip(file, (stripBlob) => {
+                                if(stripBlob && db) {
+                                    const tx2 = db.transaction(THUMB_STORE, 'readwrite');
+                                    tx2.objectStore(THUMB_STORE).put(stripBlob, getCacheKey(file) + "_preview");
+                                    tx2.oncomplete = () => {
+                                        updateIcon('completed');
+                                        updateCacheStatus(); // [수정] 프리뷰 저장 후에도 개수 업데이트
+                                    };
+                                }
+                                URL.revokeObjectURL(video.src);
+                                video.remove();
+                            });
+                            
+                        } else {
+                            URL.revokeObjectURL(video.src);
+                            video.remove();
                         }
-                        URL.revokeObjectURL(video.src); 
-                        video.remove();
                     }, 'image/jpeg', 0.8);
-                } catch (e) { 
-                    URL.revokeObjectURL(video.src); 
-                }
+                } catch (e) { URL.revokeObjectURL(video.src); }
             };
 
-            // 1-1. 메타데이터 로드 후 정확히 중간(50%) 지점으로 이동
-            video.onloadedmetadata = () => {
-                if (video.duration && video.duration > 0) {
-                    video.currentTime = video.duration * 0.5;
-                }
-            };
-
+            video.onloadedmetadata = () => { if (video.duration) video.currentTime = video.duration * 0.5; };
             video.onseeked = capture; 
             video.onerror = () => URL.revokeObjectURL(video.src); 
             video.load();
         }
                 // [신규] 로컬 썸네일 클릭 시 4분할 프리뷰 토글
-                function openPreviewModal(index) {
+        function openPreviewModal(index) {
             const file = loadedVideos[index];
             if (!file) return;
 
