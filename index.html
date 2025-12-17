@@ -239,6 +239,26 @@
         .sub-item.active { border-left: 4px solid #0d6efd; background: #2a2a2a; color: #fff; font-weight: bold; }
         .sub-time { font-size: 0.75rem; color: #888; display: block; margin-bottom: 2px; }
         .guide-text { font-size: 0.75rem; color: #bbb; padding: 0 5px 10px 5px; line-height: 1.3; }
+        /* [신규] 미리보기 팝업 스타일 */
+        .preview-modal {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); z-index: 3000;
+            justify-content: center; align-items: center;
+            backdrop-filter: blur(5px);
+        }
+        .preview-content {
+            position: relative;
+            max-width: 90%; max-height: 90%;
+            background: #000; border-radius: 8px;
+            overflow-y: auto; /* 이미지가 길면 스크롤 */
+            box-shadow: 0 0 20px rgba(0,0,0,0.7);
+            border: 1px solid #444;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            min-width: 300px; min-height: 200px;
+        }
+        .preview-image {
+            display: block; width: 100%; height: auto; object-fit: contain;
+        }
     </style>
 </head>
 <body>
@@ -267,7 +287,16 @@
         <!-- 히스토리 갤러리 (숨김 상태로 시작) -->
         <div id="gallery-history" class="container" style="display:none;"></div>
     </div>
-
+<!-- [신규] 4분할 미리보기 팝업 -->
+    <div id="previewModal" class="preview-modal" onclick="closePreviewModal()">
+        <div class="preview-content" onclick="event.stopPropagation()">
+            <img id="previewImage" class="preview-image" src="" alt="미리보기 로딩 중...">
+            <div id="previewLoading" style="padding:20px; color:#fff; text-align:center; display:none;">
+                ⏳ 미리보기 생성 중...
+            </div>
+        </div>
+        <button class="top-close-btn" style="position:fixed; top:20px; right:20px;" onclick="closePreviewModal()">✕</button>
+    </div>
     <div id="videoModal" class="modal-overlay">
         <div id="videoWrapper" class="video-wrapper">
             <div id="videoTitleBar" class="video-title-bar"></div>
@@ -465,7 +494,7 @@
                 
                 addToHistory(file.name, "제목 확인 중...", fileId, fullPath, null);
         
-                const uncensoredId = fileId + "-uncensored-leak";
+                const uncensoredId = fileId + "-uncensored-leak";        
                 const divId = `media-${index}`;
                 const targetUrl = `https://missav.live/ko/${fileId}`;
                 const uncThumb = `https://wsrv.nl/?url=fourhoi.com/${uncensoredId}/cover-t.jpg&q=70`;
@@ -760,18 +789,34 @@
             const index = img.dataset.index;
             const file = loadedVideos[index];
             if (!file) return;
+
             if (db) {
                 const key = getCacheKey(file);
                 const getReq = db.transaction(THUMB_STORE, 'readonly').objectStore(THUMB_STORE).get(key);
                 getReq.onsuccess = () => {
                     if (getReq.result) {
+                        // DB에 있다는 것은 로컬에서 생성했다는 뜻 -> 클릭 시 팝업 연결
                         const url = URL.createObjectURL(getReq.result);
-                        img.src = url; img.onload = () => URL.revokeObjectURL(url); img.onerror = null;
+                        img.src = url; 
+                        img.onload = () => URL.revokeObjectURL(url); 
+                        img.onerror = null;
+                        
+                        // 클릭 이벤트: 팝업 열기
+                        img.onclick = (e) => {
+                            e.stopPropagation();
+                            openPreviewModal(index);
+                        };
+
+                        // 히스토리 업데이트
                         const fileId = img.dataset.fileid || "unknown";
                         addToHistory(file.name, titleCache[index], fileId, file.webkitRelativePath, getReq.result);
-                    } else { tryNextFallback(img); }
+                    } else { 
+                        tryNextFallback(img); 
+                    }
                 };
-            } else { tryNextFallback(img); }
+            } else { 
+                tryNextFallback(img); 
+            }
         }
         function tryNextFallback(img) {
             const fallbackUrl = img.dataset.fallback;
@@ -779,9 +824,19 @@
             if (fallbackUrl && currentSrc !== fallbackUrl && !img.dataset.triedLocal) {
                 img.src = fallbackUrl;
                 const container = img.closest('.media-container');
-                if(container && container.querySelector('.badge-no')) container.querySelector('.badge-no').style.display = 'none';
+                if(container && container.querySelector('.badge-no')) {
+                    container.querySelector('.badge-no').style.display = 'none';
+                }
+                const currentClick = img.getAttribute('onclick');
+                if (currentClick) {
+                    const newClick = currentClick.replace('-uncensored-leak', '');
+                    img.setAttribute('onclick', newClick);
+                }
             } else {
-                img.onerror = null; img.dataset.triedLocal = "true"; img.style.opacity = "0.3";
+                // 더 이상 웹 이미지가 없으면 로컬 생성 시도
+                img.onerror = null; 
+                img.dataset.triedLocal = "true"; 
+                img.style.opacity = "0.3";
                 thumbObserver.observe(img);
             }
         }
@@ -794,35 +849,197 @@
             const index = imgEl.dataset.index;
             const file = loadedVideos[index];
             if (!file) return;
+
             const video = document.createElement('video');
             video.src = URL.createObjectURL(file);
-            video.muted = true; video.playsInline = true; video.currentTime = 15; 
+            video.muted = true; 
+            video.playsInline = true; 
+            
+            // 1-1. 메타데이터 로드 전 임시 시간
+            video.currentTime = 1; 
+            
             const capture = () => {
                 try {
                     const cvs = document.createElement('canvas');
                     const scale = 320 / video.videoWidth; 
-                    cvs.width = 320; cvs.height = video.videoHeight * scale;
+                    cvs.width = 320; 
+                    cvs.height = video.videoHeight * scale;
+                    
                     cvs.getContext('2d').drawImage(video, 0, 0, cvs.width, cvs.height);
+                    
                     cvs.toBlob(blob => {
                         if (blob) {
                             const url = URL.createObjectURL(blob);
-                            imgEl.src = url; imgEl.style.opacity = "1";
+                            imgEl.src = url; 
+                            imgEl.style.opacity = "1";
+                            
+                            // 1-2. 클릭 시 팝업 모달 열기 연결
+                            imgEl.onclick = (e) => {
+                                e.stopPropagation();
+                                openPreviewModal(index);
+                            };
+
+                            // DB 저장
                             if(db) {
                                 const tx = db.transaction(THUMB_STORE, 'readwrite');
                                 tx.objectStore(THUMB_STORE).put(blob, getCacheKey(file));
                                 updateCacheStatus();
+                                
                                 const fileId = imgEl.dataset.fileid || "unknown";
                                 addToHistory(file.name, titleCache[index], fileId, file.webkitRelativePath, blob);
                             }
                         }
-                        URL.revokeObjectURL(video.src); video.remove();
-                    }, 'image/jpeg', 0.7);
-                } catch (e) { URL.revokeObjectURL(video.src); }
+                        URL.revokeObjectURL(video.src); 
+                        video.remove();
+                    }, 'image/jpeg', 0.8);
+                } catch (e) { 
+                    URL.revokeObjectURL(video.src); 
+                }
             };
-            video.onloadeddata = () => { if(video.duration < 15) video.currentTime = video.duration * 0.5; };
-            video.onseeked = capture; video.onerror = () => URL.revokeObjectURL(video.src); video.load();
+
+            // 1-1. 메타데이터 로드 후 정확히 중간(50%) 지점으로 이동
+            video.onloadedmetadata = () => {
+                if (video.duration && video.duration > 0) {
+                    video.currentTime = video.duration * 0.5;
+                }
+            };
+
+            video.onseeked = capture; 
+            video.onerror = () => URL.revokeObjectURL(video.src); 
+            video.load();
+        }
+                // [신규] 로컬 썸네일 클릭 시 4분할 프리뷰 토글
+                function openPreviewModal(index) {
+            const file = loadedVideos[index];
+            if (!file) return;
+
+            const modal = document.getElementById('previewModal');
+            const img = document.getElementById('previewImage');
+            const loading = document.getElementById('previewLoading');
+
+            // 초기화
+            img.style.display = 'none';
+            img.src = '';
+            loading.style.display = 'block';
+            modal.style.display = 'flex';
+
+            // DB 캐시 확인
+            const previewKey = getCacheKey(file) + "_preview";
+            
+            const showImage = (blob) => {
+                const url = URL.createObjectURL(blob);
+                img.src = url;
+                img.style.display = 'block';
+                loading.style.display = 'none';
+            };
+
+            if (db) {
+                const req = db.transaction(THUMB_STORE, 'readonly').objectStore(THUMB_STORE).get(previewKey);
+                req.onsuccess = () => {
+                    if (req.result) {
+                        // 캐시 있음
+                        showImage(req.result);
+                    } else {
+                        // 캐시 없음 -> 생성
+                        generateFilmstrip(file, (blob) => {
+                            if (blob) {
+                                // DB 저장
+                                const tx = db.transaction(THUMB_STORE, 'readwrite');
+                                tx.objectStore(THUMB_STORE).put(blob, previewKey);
+                                showImage(blob);
+                            } else {
+                                alert("미리보기 생성 실패");
+                                closePreviewModal();
+                            }
+                        });
+                    }
+                };
+            } else {
+                // DB 없음 -> 그냥 생성
+                generateFilmstrip(file, showImage);
+            }
+        }
+
+        function closePreviewModal() {
+            const modal = document.getElementById('previewModal');
+            const img = document.getElementById('previewImage');
+            modal.style.display = 'none';
+            img.src = ''; // 메모리 해제 도움
         }
         
+        // [신규] 4분할 세로 이어붙이기 이미지 생성 (1/5, 2/5, 3/5, 4/5 지점)
+        function generateFilmstrip(file, callback) {
+            const video = document.createElement('video');
+            video.src = URL.createObjectURL(file);
+            video.muted = true;
+            video.playsInline = true;
+
+            const frames = [];
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // 캡처할 지점 (20%, 40%, 60%, 80%)
+            const points = [0.2, 0.4, 0.6, 0.8];
+            let step = 0;
+
+            const processStep = () => {
+                if (step >= points.length) {
+                    // 모든 프레임 캡처 완료 -> 합치기
+                    const w = 320; // 너비 고정
+                    // 비율 계산 (첫 프레임 기준)
+                    const scale = w / video.videoWidth;
+                    const h = video.videoHeight * scale;
+                    
+                    canvas.width = w;
+                    canvas.height = h * 4; // 4장 높이 합산
+
+                    // 캔버스에 그리기
+                    frames.forEach((frameData, i) => {
+                        ctx.drawImage(frameData, 0, i * h, w, h);
+                    });
+
+                    // Blob으로 변환하여 콜백 반환
+                    canvas.toBlob((blob) => {
+                        URL.revokeObjectURL(video.src);
+                        video.remove();
+                        callback(blob);
+                    }, 'image/jpeg', 0.7);
+                    return;
+                }
+
+                // 다음 지점으로 이동
+                if (video.duration) {
+                    video.currentTime = video.duration * points[step];
+                } else {
+                    // duration 없는 경우(매우 드묾) 대비
+                    video.currentTime = 10 * (step + 1);
+                }
+            };
+
+            video.onseeked = () => {
+                // 현재 프레임 임시 캔버스에 그리기
+                const tempCvs = document.createElement('canvas');
+                tempCvs.width = video.videoWidth;
+                tempCvs.height = video.videoHeight;
+                tempCvs.getContext('2d').drawImage(video, 0, 0);
+                frames.push(tempCvs); // 이미지 데이터 저장
+
+                step++;
+                processStep(); // 다음 단계
+            };
+
+            video.onloadedmetadata = () => {
+                processStep(); // 첫 단계 시작
+            };
+
+            video.onerror = () => {
+                URL.revokeObjectURL(video.src);
+                callback(null);
+            };
+
+            video.load();
+        }
+
         // --- Player Logic (No Changes) ---
         const modal = document.getElementById('videoModal');
         const player = document.getElementById('mainPlayer');
@@ -996,6 +1213,54 @@
         function setSpeed(rate) { player.playbackRate = rate; document.getElementById('speedBtnText').innerText = rate; toggleMenu('speedMenu'); }
         function toggleFullscreen() { if (!document.fullscreenElement) videoWrapper.requestFullscreen().catch(() => {}); else document.exitFullscreen(); }
         function srtToVtt(srt) { return "WEBVTT\n\n" + srt.replace(/(\d{2}):(\d{2}):(\d{2}),(\d{3})/g, '$1:$2:$3.$4'); }
+        // === [추가] 웹 프리뷰 재생 함수 ===
+        function playWebPreview(divId, videoUrl, targetLink) {
+            const container = document.getElementById(divId);
+            if (!container) return;
+
+            // 이미 비디오가 재생 중이라면 클릭 시 해당 사이트(MissAV)로 이동
+            if (container.querySelector('video')) {
+                window.open(targetLink, '_blank');
+                return;
+            }
+
+            // 기존 이미지 HTML 백업 (에러 시 복구용)
+            const originalContent = container.innerHTML;
+
+            // 비디오 태그 생성
+            const video = document.createElement('video');
+            video.src = videoUrl;
+            video.autoplay = true;
+            video.muted = true; // 브라우저 정책상 자동재생을 위해 음소거 필수
+            video.loop = true;
+            video.playsInline = true;
+            video.className = 'media-content'; // CSS 스타일 상속 (꽉 차게 표시)
+            
+            // 로딩 중임을 표시하고 싶다면 아래 주석 해제 (선택사항)
+            // container.style.opacity = 0.5;
+
+            // 영상 로드 성공 시
+            video.onloadeddata = () => {
+                // container.style.opacity = 1;
+            };
+
+            // 영상이 없거나 에러 발생 시 원래 이미지로 복구
+            video.onerror = () => {
+                container.innerHTML = originalContent;
+                // 선택사항: 프리뷰가 없으면 바로 새창을 띄우려면 아래 주석 해제
+                // window.open(targetLink, '_blank');
+            };
+
+            // 비디오 클릭 시 사이트 이동 이벤트 연결
+            video.onclick = (e) => {
+                e.stopPropagation();
+                window.open(targetLink, '_blank');
+            };
+
+            // 컨테이너 내용을 비디오로 교체
+            container.innerHTML = '';
+            container.appendChild(video);
+        }
     </script>
 </body>
 </html>
