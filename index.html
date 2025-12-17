@@ -5,7 +5,7 @@
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#000000">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Folder Player (Smart Scan Support)</title>
+    <title>JAV Folder Player (Smart Scan Support)</title>
     <style>
         /* === 기본 스타일 === */
         html { background-color: #000000; height: 100%; }
@@ -512,12 +512,20 @@
             gallery.innerHTML = '';
         
             files.forEach(f => {
+                // [▼▼▼ 추가된 코드 시작 ▼▼▼]
+                // webkitRelativePath 예시: "최상위폴더/파일명" (length=2) 또는 "최상위폴더/하위폴더/파일명" (length>2)
+                // 따라서 '/'로 쪼갰을 때 개수가 2개를 넘으면 하위 폴더에 있는 파일이므로 건너뜁니다.
+                if (f.webkitRelativePath && f.webkitRelativePath.split('/').length > 2) {
+                    return; 
+                }
+                // [▲▲▲ 추가된 코드 끝 ▲▲▲]
+
                 const n = f.name.toLowerCase();
-                if (f.type.startsWith('video/') || n.match(/\.(mp4|avi|mkv|wmv|mov|webm|m4v|nel)$/)) loadedVideos.push(f);
+                if (f.type.startsWith('video/') || n.match(/\.(mp4|avi|mkv|wmv|mov|webm|m4v|nel|nep)$/)) loadedVideos.push(f);
                 else if (n.endsWith('.srt') || n.endsWith('.srn')) subtitleMap[n.substring(0, n.lastIndexOf('.'))] = f;
             });
         
-            if (loadedVideos.length === 0) { status.innerText = "동영상이 없습니다."; return; }
+            if (loadedVideos.length === 0) { status.innerText = "동영상이 없습니다. (하위 폴더 제외)"; return; } // 문구 살짝 수정
             loadedVideos.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
             status.innerText = `스캔 완료: 영상 ${loadedVideos.length}개`;
         
