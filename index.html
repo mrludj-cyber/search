@@ -432,7 +432,7 @@
         let titleCache = {}; // 스캔 모드용 인덱스 캐시
         let titleQueue = [];
         let isBatchRunning = false;
-        const BATCH_SIZE = 5;
+        const BATCH_SIZE = 20;
         
         // ==========================================
         // 1. 파일 스캔
@@ -526,7 +526,7 @@
         
             if (targetEl) targetEl.innerText = "확인 중...";
         
-            const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://missavtv.com/ko/${item.id}`)}`;
+            const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://missav.live/ko/${item.id}`)}`;
             try {
                 const response = await fetch(proxyUrl);
                 if (!response.ok) throw new Error("Net");
@@ -680,7 +680,7 @@
                                     ${!isLocal ? '<div class="badge-no" style="background:#555; right:5px; left:auto; width:auto; padding:0 5px; border-radius:4px;">Web</div>' : ''}
                                 </div>
                                 <div class="btn-group">
-                                    <button class="action-btn btn-search" onclick="window.open('${targetUrl}', '_blank')">🔍 MissAV</button>
+                                    <button class="action-btn btn-search" onclick="window.open('${targetUrl}', '_blank')">🔍 GO</button>
                                     <button class="action-btn btn-delete-hist" onclick="deleteFromHistory('${item.filename}')">✕</button>
                                 </div>
                             </div>`;
