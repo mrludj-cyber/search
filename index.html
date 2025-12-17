@@ -217,27 +217,31 @@
 <body>
     <div class="main-wrapper">
         <div class="control-panel">
-            <div class="btn-row">
+            <!-- 1. 메인 화면 컨트롤 -->
+            <div id="main-controls" class="btn-row">
                 <label for="folder-upload" class="custom-file-upload">
                     📂 폴더 스캔 (Scan)
                 </label>
-                <!-- [추가] 히스토리 버튼 -->
                 <button class="btn-action btn-history" onclick="toggleHistoryMode()">
-                    📜 히스토리 <span id="historyCount" class="history-badge">0</span>
+                    📜 히스토리 보기 <span id="historyCount" class="history-badge">0</span>
+                </button>
+            </div>
+        
+            <!-- 2. 히스토리 화면 컨트롤 (처음엔 숨김) -->
+            <div id="history-controls" class="btn-row" style="display:none;">
+                <button class="btn-action" style="background:#6c757d;" onclick="toggleHistoryMode()">
+                    ↩️ 메인으로 돌아가기
+                </button>
+                <button class="btn-action btn-danger" onclick="clearThumbnailCache()">
+                    🗑️ 썸네일 캐시 삭제
+                </button>
+                <button class="btn-action btn-danger" style="background:#b02a37" onclick="clearHistory()">
+                    💣 히스토리 초기화
                 </button>
             </div>
             
             <input id="folder-upload" type="file" webkitdirectory directory multiple />
         
-            <div class="btn-row" style="margin-top:10px;">
-                    <button class="btn-action btn-danger" onclick="clearThumbnailCache()">
-                    🗑️ 캐시 삭제
-                </button>
-                <!-- [추가] 히스토리 초기화 버튼 -->
-                <button class="btn-action btn-danger" style="background:#b02a37" onclick="clearHistory()">
-                    💣 히스토리 초기화
-                </button>
-            </div>
             <div id="cacheStatus" class="status-msg">DB 준비 중...</div>
             <div id="status" class="status-msg" style="color:#fff; margin-top:8px;">폴더를 선택하면 영상 목록을 스캔합니다.</div>
         </div>
@@ -374,14 +378,29 @@
             tx.oncomplete = () => { alert("히스토리 초기화됨"); updateHistoryCount(); if(isHistoryMode) renderHistoryView(); };
         }
 
-        // [핵심] 히스토리 저장 함수
-        function addToHistory(filename, title, fileId, thumbnailBlob) {
+        // [수정] 히스토리 저장 함수 (경로 정보 추가, 썸네일 없어도 저장 가능)
+        function addToHistory(filename, title, fileId, path, thumbnailBlob = null) {
             if(!db) return;
             const tx = db.transaction(HISTORY_STORE, 'readwrite');
-            tx.objectStore(HISTORY_STORE).put({
-                filename: filename, title: title, fileId: fileId,
-                thumbnail: thumbnailBlob, timestamp: new Date().getTime()
-            });
+            const store = tx.objectStore(HISTORY_STORE);
+            
+            // 기존 데이터 가져와서 썸네일이 있으면 유지하고, 없으면 새로 들어온 것(혹은 null)으로 업데이트
+            // (이미지 로딩 전 텍스트만 먼저 저장하는 경우를 위해)
+            const getReq = store.get(filename);
+            getReq.onsuccess = () => {
+                const existing = getReq.result;
+                const finalThumb = thumbnailBlob || (existing ? existing.thumbnail : null);
+                
+                const data = {
+                    filename: filename,
+                    title: title,
+                    fileId: fileId,
+                    path: path, // 폴더 경로 저장
+                    thumbnail: finalThumb, 
+                    timestamp: new Date().getTime()
+                };
+                store.put(data);
+            };
             tx.oncomplete = updateHistoryCount;
         }
 
@@ -392,41 +411,76 @@
             tx.oncomplete = () => { renderHistoryView(); updateHistoryCount(); };
         }
         
-        // [추가] 히스토리 모드 렌더링 함수
+        // [수정] 화면 모드 전환 (버튼 표시 제어 추가)
         function toggleHistoryMode() {
             isHistoryMode = !isHistoryMode;
             const gallery = document.getElementById('gallery');
             const status = document.getElementById('status');
+            const mainCtrl = document.getElementById('main-controls');
+            const histCtrl = document.getElementById('history-controls');
+            
             if(isHistoryMode) {
-                status.innerText = "📚 히스토리 모드";
+                status.innerText = "📚 히스토리 모드 (파일명 클릭 시 폴더 경로 확인)";
+                mainCtrl.style.display = 'none'; // 메인 버튼 숨김
+                histCtrl.style.display = 'flex'; // 히스토리 버튼 표시
                 renderHistoryView();
             } else {
                 status.innerText = "📂 스캔 모드";
-                gallery.innerHTML = '<div style="color:#777; padding:20px; text-align:center;">폴더를 다시 스캔해주세요.</div>';
+                mainCtrl.style.display = 'flex'; // 메인 버튼 표시
+                histCtrl.style.display = 'none'; // 히스토리 버튼 숨김
+                gallery.innerHTML = '<div style="color:#777; padding:20px; grid-column:span 2; text-align:center;">폴더를 다시 스캔해주세요.</div>';
             }
         }
 
+        // [수정] 히스토리 렌더링 (인터넷 썸네일 지원 + 경로 확인)
         function renderHistoryView() {
             if(!db) return;
             const gallery = document.getElementById('gallery');
             gallery.innerHTML = '';
+            
             const tx = db.transaction(HISTORY_STORE, 'readonly').objectStore(HISTORY_STORE).getAll();
             tx.onsuccess = () => {
                 const list = tx.result;
-                if(!list || list.length === 0) { gallery.innerHTML = '<div style="color:#777; padding:20px;">기록 없음</div>'; return; }
+                if(!list || list.length === 0) {
+                    gallery.innerHTML = '<div style="color:#777; padding:20px; grid-column:span 2; text-align:center;">저장된 히스토리가 없습니다.</div>';
+                    return;
+                }
+                
                 list.reverse().forEach(item => {
-                    const thumbUrl = URL.createObjectURL(item.thumbnail);
+                    // 1. 썸네일 결정: 로컬 Blob이 있으면 그거 쓰고, 없으면 인터넷 URL 생성
+                    let thumbSrc = "";
+                    let isLocal = false;
+                    
+                    if (item.thumbnail) {
+                        thumbSrc = URL.createObjectURL(item.thumbnail);
+                        isLocal = true;
+                    } else {
+                        // 저장된 썸네일이 없으면 Fourhoi/MissAV 패턴 사용
+                        const uncensoredId = item.fileId + "-uncensored-leak";
+                        thumbSrc = `https://wsrv.nl/?url=fourhoi.com/${uncensoredId}/cover-t.jpg&q=70`;
+                    }
+        
                     const targetUrl = `https://missav.live/ko/${item.fileId}`;
-                    gallery.insertAdjacentHTML('beforeend', `
+                    const folderInfo = item.path ? item.path.replace(item.filename, '') : "경로 정보 없음";
+        
+                    const html = `
                         <div class="item history-item">
-                            <div class="filename" style="color:#b197fc">${item.filename}</div>
+                            <div class="filename" style="color:#b197fc; cursor:pointer; text-decoration:underline;" 
+                                 onclick="alert('📂 원래 위치:\\n${folderInfo}')" title="누르면 폴더 경로 확인">
+                                ${item.filename}
+                            </div>
                             <div class="video-title">${item.title || item.fileId}</div>
-                            <div class="media-container" onclick="window.open('${targetUrl}', '_blank')"><img src="${thumbUrl}" class="media-content"></div>
+                            <div class="media-container" onclick="window.open('${targetUrl}', '_blank')">
+                                <img src="${thumbSrc}" class="media-content" style="opacity:${isLocal ? 1 : 0.8}">
+                                ${!isLocal ? '<div class="badge-no" style="background:#555; color:#fff; width:auto; padding:0 5px; border-radius:4px; right:5px; left:auto;">Web</div>' : ''}
+                            </div>
                             <div class="btn-group">
-                                <button class="action-btn btn-search" onclick="window.open('${targetUrl}', '_blank')">🔍 재검색</button>
+                                <button class="action-btn btn-search" onclick="window.open('${targetUrl}', '_blank')">🔍 정보/다운</button>
                                 <button class="action-btn btn-delete-hist" onclick="deleteFromHistory('${item.filename}')">✕</button>
                             </div>
-                        </div>`);
+                        </div>
+                    `;
+                    gallery.insertAdjacentHTML('beforeend', html);
                 });
             };
         }
@@ -457,10 +511,16 @@
         // [New] 현재 재생중인 자막 파일 식별자 (저장용)
         let currentSubtitleKey = ""; 
 
+
         // ==========================================
-        // 1. 파일 스캔 (검색 로직 강화 적용)
+        // 1. 파일 스캔 (수정됨: parseFileId 함수 사용 + 히스토리 즉시 저장)
         // ==========================================
         document.getElementById('folder-upload').addEventListener('change', function(event) {
+            // 스캔 시작하면 메인 모드로 전환 (히스토리 모드 끄기)
+            isHistoryMode = false; 
+            document.getElementById('main-controls').style.display = 'flex';
+            document.getElementById('history-controls').style.display = 'none';
+        
             const files = Array.from(event.target.files);
             const gallery = document.getElementById('gallery');
             const status = document.getElementById('status');
@@ -469,7 +529,7 @@
             subtitleMap = {};
             titleQueue = [];
             titleCache = {};
-
+        
             files.forEach(f => {
                 const nameLower = f.name.toLowerCase();
                 if (f.type.startsWith('video/') || nameLower.match(/\.(mp4|avi|mkv|wmv|mov|webm|m4v|nel)$/)) {
@@ -480,86 +540,33 @@
                     subtitleMap[baseName] = f;
                 }
             });
-
+        
             if (loadedVideos.length === 0) {
                 status.innerText = "동영상이 없습니다.";
                 return;
             }
             loadedVideos.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
-            status.innerText = `동영상 ${loadedVideos.length}개, 자막 ${Object.keys(subtitleMap).length}개 스캔 완료.`;
+            status.innerText = `스캔 완료: 영상 ${loadedVideos.length}개 / 자막 ${Object.keys(subtitleMap).length}개`;
             gallery.innerHTML = '';
-
+        
             loadedVideos.forEach((file, index) => {
-                // 확장자 제외한 파일명
+                // [변경점] 별도 함수로 분리된 로직 호출
                 const nameNoExt = file.name.substring(0, file.name.lastIndexOf('.'));
+                const fileInfo = parseFileId(nameNoExt); 
+                const fileId = fileInfo.id;
                 
-                let fileId = "";
-                let isRecognized = false;
-
-                // [수정됨: 다양한 품번 포맷 감지 로직]
-                
-                // 1. FC2 (fc2-ppv-123, fc2 123 등)
-                const fc2Match = nameNoExt.match(/fc2[-\s\.]?(?:ppv)?[-\s\.]?(\d+)/i);
-                
-                // 2. Caribbeancom (carib-010123-001)
-                const caribMatch = nameNoExt.match(/carib(?:beancom)?[-\s\.]?(\d{6})[-\s\.]?(\d{3})/i);
-
-                // [NEW] 3. 특수 날짜 포맷 (6자리 숫자 + (_ 또는 -) + 2~3자리 숫자)
-                // 예: 031417_498, 011018-01, 011018-002, 012528_637
-                // 파일명 중간에 포함되어 있을 수 있으므로 앞뒤로 구분자 체크가 필요할 수 있으나,
-                // 여기서는 가장 명확한 패턴을 우선 매칭합니다.
-                const mixedDateMatch = nameNoExt.match(/(\d{6})([-_])(\d{2,3})/);
-
-                // 4. 일반 날짜형 (041912-998) - 기존 로직 유지
-                const dateMatch = nameNoExt.match(/(\d{6})[-\s\.]?(\d{3,})/);
-                
-                // 5. Tokyo Hot (n0594)
-                const nMatch = nameNoExt.match(/n(\d{3,5})/i);
-                
-                // 6. 일반 품번 (문자+숫자)
-                const stdMatch = nameNoExt.match(/([a-z]+)[-\s\.]?(\d+)/i);
-
-                if (fc2Match) {
-                    fileId = `fc2-ppv-${fc2Match[1]}`;
-                    isRecognized = true;
-                } 
-                else if (caribMatch) {
-                    fileId = `caribbeancom-${caribMatch[1]}-${caribMatch[2]}`;
-                    isRecognized = true;
-                }
-                else if (mixedDateMatch) {
-                    // [NEW] 사용자가 요청한 포맷: 구분자와 숫자를 그대로 유지
-                    // 031417_498 -> 031417_498
-                    // 011018-01  -> 011018-01
-                    fileId = `${mixedDateMatch[1]}${mixedDateMatch[2]}${mixedDateMatch[3]}`;
-                    isRecognized = true;
-                }
-                else if (dateMatch) {
-                    fileId = `${dateMatch[1]}-${dateMatch[2]}`;
-                    isRecognized = true;
-                }
-                else if (nMatch) {
-                    fileId = `n${nMatch[1]}`;
-                    isRecognized = true;
-                }
-                else if (stdMatch) {
-                    fileId = `${stdMatch[1].toLowerCase()}-${stdMatch[2]}`;
-                    isRecognized = true;
-                } 
-                else {
-                    // 감지 실패 시 원본 파일명(소문자) 사용
-                    fileId = nameNoExt.toLowerCase();
-                    isRecognized = false;
-                }
-
+                // [히스토리] 스캔 즉시 기본 정보 저장 (폴더 경로 포함)
+                const folderPath = file.webkitRelativePath || file.name;
+                addToHistory(file.name, "제목 확인 중...", fileId, folderPath, null);
+        
+                // URLs 생성
                 const uncensoredId = fileId + "-uncensored-leak";
                 const uncThumb = `https://wsrv.nl/?url=fourhoi.com/${uncensoredId}/cover-t.jpg&q=70`;
                 const uncPrev = `https://fourhoi.com/${uncensoredId}/preview.mp4`;
                 const stdThumb = `https://wsrv.nl/?url=fourhoi.com/${fileId}/cover-t.jpg&q=70`;
-                const stdPrev = `https://fourhoi.com/${fileId}/preview.mp4`;
                 const targetUrl = `https://missav.live/ko/${fileId}`;
                 const divId = `media-${index}`;
-
+        
                 const itemHtml = `
                     <div class="item">
                         <div class="filename">${file.name}</div>
@@ -584,13 +591,39 @@
                 `;
                 gallery.insertAdjacentHTML('beforeend', itemHtml);
                 
-                if (isRecognized) {
+                if (fileInfo.isRecognized) {
                     addToQueue(fileId, index);
                 } else {
                     document.getElementById(`title-${index}`).innerText = "ID 추출 실패";
                 }
             });
         });
+
+        // [신규] 파일명 파싱 로직 분리 (재사용 목적)
+        function parseFileId(nameNoExt) {
+            // 1. FC2
+            const fc2Match = nameNoExt.match(/fc2[-\s\.]?(?:ppv)?[-\s\.]?(\d+)/i);
+            // 2. Caribbeancom
+            const caribMatch = nameNoExt.match(/carib(?:beancom)?[-\s\.]?(\d{6})[-\s\.]?(\d{3})/i);
+            // 3. 특수 날짜 (031417_498)
+            const mixedDateMatch = nameNoExt.match(/(\d{6})([-_])(\d{2,3})/);
+            // 4. 일반 날짜
+            const dateMatch = nameNoExt.match(/(\d{6})[-\s\.]?(\d{3,})/);
+            // 5. Tokyo Hot
+            const nMatch = nameNoExt.match(/n(\d{3,5})/i);
+            // 6. 일반 품번
+            const stdMatch = nameNoExt.match(/([a-z]+)[-\s\.]?(\d+)/i);
+        
+            if (fc2Match) return { id: `fc2-ppv-${fc2Match[1]}`, isRecognized: true };
+            if (caribMatch) return { id: `caribbeancom-${caribMatch[1]}-${caribMatch[2]}`, isRecognized: true };
+            if (mixedDateMatch) return { id: `${mixedDateMatch[1]}${mixedDateMatch[2]}${mixedDateMatch[3]}`, isRecognized: true };
+            if (dateMatch) return { id: `${dateMatch[1]}-${dateMatch[2]}`, isRecognized: true };
+            if (nMatch) return { id: `n${nMatch[1]}`, isRecognized: true };
+            if (stdMatch) return { id: `${stdMatch[1].toLowerCase()}-${stdMatch[2]}`, isRecognized: true };
+            
+            // 실패 시
+            return { id: nameNoExt.toLowerCase(), isRecognized: false };
+        }
 
         // 제목 가져오기
         function addToQueue(fileId, index) { titleQueue.push({ id: fileId, index: index, retries: 0 }); processBatch(); }
@@ -1027,49 +1060,41 @@
             const index = img.dataset.index;
             const file = loadedVideos[index];
             const fileId = img.dataset.fileid;
-            
-            // 히스토리 모드거나, 파일 정보가 없으면 저장하지 않음
             if(!file || !fileId || isHistoryMode) return;
-    
+        
             try {
                 const cvs = document.createElement('canvas');
-                cvs.width = img.naturalWidth;
-                cvs.height = img.naturalHeight;
+                cvs.width = img.naturalWidth; cvs.height = img.naturalHeight;
                 cvs.getContext('2d').drawImage(img, 0, 0);
                 
                 cvs.toBlob(blob => {
                     const currentTitle = titleCache[index] || "제목 없음";
-                    addToHistory(file.name, currentTitle, fileId, blob);
+                    // 경로 정보(webkitRelativePath) 포함하여 업데이트
+                    addToHistory(file.name, currentTitle, fileId, file.webkitRelativePath, blob);
                 }, 'image/jpeg', 0.8);
-            } catch(e) { console.log("Web thumb save fail", e); }
+            } catch(e) {}
         }
     
-        // [수정] 썸네일 에러 시 처리 (로컬 캐시 확인 -> 히스토리 저장)
+        // [수정] 로컬 썸네일 에러 시 (히스토리 백업 부분 인자 수정)
         async function onThumbnailError(img) {
             const index = img.dataset.index;
             const file = loadedVideos[index];
             if (!file) return;
-    
+        
             if (db) {
                 const key = getCacheKey(file);
                 const getReq = db.transaction(THUMB_STORE, 'readonly').objectStore(THUMB_STORE).get(key);
                 getReq.onsuccess = () => {
                     if (getReq.result) {
                         const url = URL.createObjectURL(getReq.result);
-                        img.src = url;
-                        img.onload = () => URL.revokeObjectURL(url);
-                        img.onerror = null;
+                        img.src = url; img.onload = () => URL.revokeObjectURL(url); img.onerror = null;
                         
-                        // 캐시에 있으면 히스토리에도 백업 저장
                         const fileId = img.dataset.fileid || "unknown";
-                        addToHistory(file.name, titleCache[index] || "제목 없음", fileId, getReq.result);
-                    } else {
-                        tryNextFallback(img);
-                    }
+                        // 경로 정보 포함
+                        addToHistory(file.name, titleCache[index] || "제목 없음", fileId, file.webkitRelativePath, getReq.result);
+                    } else { tryNextFallback(img); }
                 };
-            } else {
-                tryNextFallback(img);
-            }
+            } else { tryNextFallback(img); }
         }
     
         function tryNextFallback(img) {
@@ -1120,26 +1145,21 @@
                     cvs.toBlob(blob => {
                         if (blob) {
                             const url = URL.createObjectURL(blob);
-                            imgEl.src = url;
-                            imgEl.style.opacity = "1";
+                            imgEl.src = url; imgEl.style.opacity = "1";
                             
                             if(db) {
                                 const tx = db.transaction(THUMB_STORE, 'readwrite');
                                 tx.objectStore(THUMB_STORE).put(blob, getCacheKey(file));
                                 updateCacheStatus();
                                 
-                                // [추가됨] 로컬 생성본도 히스토리에 저장
+                                // [수정됨] 경로 정보 포함하여 저장
                                 const fileId = imgEl.dataset.fileid || "unknown";
-                                addToHistory(file.name, titleCache[index] || "제목 없음", fileId, blob);
+                                addToHistory(file.name, titleCache[index] || "제목 없음", fileId, file.webkitRelativePath, blob);
                             }
                         }
-                        URL.revokeObjectURL(video.src);
-                        video.remove();
+                        URL.revokeObjectURL(video.src); video.remove();
                     }, 'image/jpeg', 0.7);
-                } catch (e) {
-                    console.error(e);
-                    URL.revokeObjectURL(video.src);
-                }
+                } catch (e) { URL.revokeObjectURL(video.src); }
             };
             video.onloadeddata = () => { if(video.duration < 15) video.currentTime = video.duration * 0.5; };
             video.onseeked = capture;
