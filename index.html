@@ -84,23 +84,16 @@
             font-weight: bold; font-size: 0.8rem; display: flex; align-items: center; justify-content: center;
             z-index: 10; pointer-events: none;
         }
-        .btn-row { 
-            display: flex; justify-content: center; gap: 8px; margin-bottom: 10px; width: 100%;
-        }
+        .btn-row { display: flex; justify-content: center; gap: 8px; margin-bottom: 10px; width: 100%; }
         .custom-file-upload, .btn-action {
             display: inline-flex; align-items: center; justify-content: center;
             padding: 12px 15px; cursor: pointer; border-radius: 8px;
             font-weight: bold; font-size: 0.9rem; border: none; color: white;
-            flex: 1; /* 버튼끼리 공간을 공평하게 나눠가짐 */
-            white-space: nowrap;
+            flex: 1; white-space: nowrap;
         }
-        /* 폴더 선택 버튼 (파랑) */
         .custom-file-upload { background-color: #0d6efd; margin: 0; }
-        /* 히스토리 버튼 (보라) */
         .btn-history { background-color: #6f42c1; }
-        /* 뒤로가기 버튼 (회색) */
         .btn-back { background-color: #6c757d; }
-        /* 삭제 버튼들 */
         .btn-danger { flex: 0 0 auto; padding: 10px 15px; font-size: 0.8rem; }
         /* [신규] 히스토리 그룹 헤더 (폴더명) */
         .history-group-title {
@@ -109,6 +102,21 @@
             margin-top: 20px; margin-bottom: 10px; padding-bottom: 5px;
             border-bottom: 2px solid #333;
         }
+        /* [신규] 히스토리 폴더 그룹 스타일 (접기/펼치기) */
+        .history-folder-group { margin-bottom: 5px; border: 1px solid #333; border-radius: 6px; overflow: hidden; }
+        .history-folder-header {
+            background-color: #222; padding: 15px; cursor: pointer;
+            display: flex; justify-content: space-between; align-items: center;
+            font-weight: bold; color: #ffd43b; user-select: none;
+        }
+        .history-folder-header:hover { background-color: #333; }
+        .history-folder-content {
+            display: none; /* 기본 숨김 */
+            padding: 10px; background-color: #111;
+            grid-template-columns: 1fr 1fr; gap: 10px; /* 내부 그리드 */
+        }
+        /* 폴더가 열렸을 때 적용될 클래스 */
+        .history-folder-content.open { display: grid; }
                   
         .btn-group { display: flex; gap: 4px; margin-top: auto; }
         .action-btn {
@@ -236,27 +244,16 @@
 <body>
     <div class="main-wrapper">
         <div class="control-panel">
-            <!-- 메인 컨트롤 (스캔 화면일 때 보임) -->
+            <!-- 메인 컨트롤 -->
             <div id="main-controls" class="btn-row">
-                <label for="folder-upload" class="custom-file-upload">
-                    📂 폴더 스캔
-                </label>
-                <button class="btn-action btn-history" onclick="toggleHistoryMode(true)">
-                    📜 히스토리 <span id="historyCount" class="history-badge">0</span>
-                </button>
+                <label for="folder-upload" class="custom-file-upload">📂 폴더 스캔</label>
+                <button class="btn-action btn-history" onclick="toggleHistoryMode(true)">📜 히스토리 <span id="historyCount" class="history-badge">0</span></button>
             </div>
-    
-            <!-- 히스토리 컨트롤 (히스토리 화면일 때 보임) -->
+            <!-- 히스토리 컨트롤 -->
             <div id="history-controls" class="btn-row" style="display:none;">
-                <button class="btn-action btn-back" onclick="toggleHistoryMode(false)">
-                    ↩️ 목록으로
-                </button>
-                <button class="btn-action btn-danger" onclick="clearThumbnailCache()">
-                    🗑️ 캐시삭제
-                </button>
-                <button class="btn-action btn-danger" style="background:#b02a37" onclick="clearHistory()">
-                    💣 초기화
-                </button>
+                <button class="btn-action btn-back" onclick="toggleHistoryMode(false)">↩️ 목록으로</button>
+                <button class="btn-action btn-danger" onclick="clearThumbnailCache()">🗑️ 캐시삭제</button>
+                <button class="btn-action btn-danger" style="background:#b02a37" onclick="clearHistory()">💣 초기화</button>
             </div>
             
             <input id="folder-upload" type="file" webkitdirectory directory multiple />
@@ -366,7 +363,7 @@
         
         function getCacheKey(file) { return `${file.name}_${file.size}_${file.lastModified}`; }
         
-        // === DB 관련 헬퍼 함수 ===
+        // === DB 헬퍼 ===
         function updateCacheStatus() {
             if (!db) return;
             const t = db.transaction(THUMB_STORE, 'readonly').objectStore(THUMB_STORE).count();
@@ -381,49 +378,37 @@
             };
         }
         function clearThumbnailCache() {
-            if (!confirm("썸네일 캐시를 삭제하시겠습니까? (히스토리 텍스트 정보는 유지)")) return;
+            if (!confirm("썸네일 캐시를 삭제하시겠습니까?")) return;
             const tx = db.transaction(THUMB_STORE, 'readwrite');
             tx.objectStore(THUMB_STORE).clear();
             tx.oncomplete = () => { alert("삭제됨"); updateCacheStatus(); };
         }
         function clearHistory() {
-            if (!confirm("모든 시청 기록을 삭제하시겠습니까?")) return;
+            if (!confirm("히스토리를 초기화하시겠습니까?")) return;
             const tx = db.transaction(HISTORY_STORE, 'readwrite');
             tx.objectStore(HISTORY_STORE).clear();
             tx.oncomplete = () => { alert("초기화됨"); updateHistoryCount(); if(isHistoryMode) renderHistoryView(); };
         }
-        
-        // [핵심] 히스토리 저장/업데이트
         function addToHistory(filename, title, fileId, path, thumbnailBlob = null) {
             if(!db) return;
             const tx = db.transaction(HISTORY_STORE, 'readwrite');
             const store = tx.objectStore(HISTORY_STORE);
-            
-            // 기존 데이터 확인 (덮어쓰기 방지 및 병합)
             const getReq = store.get(filename);
             getReq.onsuccess = () => {
                 const existing = getReq.result;
-                // 썸네일: 새것이 없으면 기존것 유지
                 const finalThumb = thumbnailBlob || (existing ? existing.thumbnail : null);
-                // 제목: "확인 중..." 이거나 없으면 새 제목으로, 이미 좋은 제목이 있으면 유지하되 강제 업데이트면 덮어씀
                 let finalTitle = title;
-                if (existing && existing.title && existing.title !== "제목 확인 중..." && title === "제목 확인 중...") {
+                // 기존 제목이 유효하고 새 제목이 미정이면 기존 제목 유지
+                if (existing && existing.title && existing.title !== "제목 확인 중..." && existing.title !== "ID 추출 실패" && (title === "제목 확인 중..." || title === "ID 추출 실패")) {
                     finalTitle = existing.title;
                 }
-        
                 store.put({
-                    filename: filename,
-                    title: finalTitle,
-                    fileId: fileId,
-                    path: path,
-                    thumbnail: finalThumb,
-                    timestamp: existing ? existing.timestamp : new Date().getTime()
+                    filename: filename, title: finalTitle, fileId: fileId, path: path,
+                    thumbnail: finalThumb, timestamp: existing ? existing.timestamp : new Date().getTime()
                 });
             };
             tx.oncomplete = updateHistoryCount;
         }
-        
-        // [신규] 제목만 업데이트 (MissAV에서 가져온 후)
         function updateHistoryTitle(filename, newTitle) {
             if(!db) return;
             const tx = db.transaction(HISTORY_STORE, 'readwrite');
@@ -431,13 +416,9 @@
             const req = store.get(filename);
             req.onsuccess = () => {
                 const item = req.result;
-                if(item) {
-                    item.title = newTitle;
-                    store.put(item);
-                }
+                if(item) { item.title = newTitle; store.put(item); }
             };
         }
-        
         function deleteFromHistory(filename) {
             if(!confirm("삭제하시겠습니까?")) return;
             const tx = db.transaction(HISTORY_STORE, 'readwrite');
@@ -445,22 +426,20 @@
             tx.oncomplete = () => { renderHistoryView(); updateHistoryCount(); };
         }
         
-        
         // === 전역 변수 ===
         let loadedVideos = [];
         let subtitleMap = {};
-        let titleCache = {};
+        let titleCache = {}; // 스캔 모드용 인덱스 캐시
         let titleQueue = [];
         let isBatchRunning = false;
-        const BATCH_SIZE = 5; // 배치 사이즈 약간 줄임 (안정성)
+        const BATCH_SIZE = 5;
         
         // ==========================================
-        // 1. 파일 스캔 로직
+        // 1. 파일 스캔
         // ==========================================
         document.getElementById('folder-upload').addEventListener('change', function(event) {
-            // 스캔 시작 시 강제로 스캔 화면으로 이동
             if(isHistoryMode) toggleHistoryMode(false);
-        
+            
             const files = Array.from(event.target.files);
             const gallery = document.getElementById('gallery-scan');
             const status = document.getElementById('status');
@@ -469,18 +448,12 @@
             gallery.innerHTML = '';
         
             files.forEach(f => {
-                const nameLower = f.name.toLowerCase();
-                if (f.type.startsWith('video/') || nameLower.match(/\.(mp4|avi|mkv|wmv|mov|webm|m4v|nel)$/)) {
-                    loadedVideos.push(f);
-                } 
-                else if (nameLower.endsWith('.srt') || nameLower.endsWith('.srn')) {
-                    subtitleMap[nameLower.substring(0, nameLower.lastIndexOf('.'))] = f;
-                }
+                const n = f.name.toLowerCase();
+                if (f.type.startsWith('video/') || n.match(/\.(mp4|avi|mkv|wmv|mov|webm|m4v|nel)$/)) loadedVideos.push(f);
+                else if (n.endsWith('.srt') || n.endsWith('.srn')) subtitleMap[n.substring(0, n.lastIndexOf('.'))] = f;
             });
         
             if (loadedVideos.length === 0) { status.innerText = "동영상이 없습니다."; return; }
-            
-            // 정렬
             loadedVideos.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
             status.innerText = `스캔 완료: 영상 ${loadedVideos.length}개`;
         
@@ -488,18 +461,15 @@
                 const nameNoExt = file.name.substring(0, file.name.lastIndexOf('.'));
                 const fileInfo = parseFileId(nameNoExt);
                 const fileId = fileInfo.id;
-                
-                // 경로 정보 (폴더명 추출)
                 const fullPath = file.webkitRelativePath || file.name;
-                // 히스토리 선저장 (제목은 일단 대기)
+                
                 addToHistory(file.name, "제목 확인 중...", fileId, fullPath, null);
         
-                // URLs
                 const uncensoredId = fileId + "-uncensored-leak";
-                const uncThumb = `https://wsrv.nl/?url=fourhoi.com/${uncensoredId}/cover-t.jpg&q=70`;
-                const stdThumb = `https://wsrv.nl/?url=fourhoi.com/${fileId}/cover-t.jpg&q=70`;
                 const divId = `media-${index}`;
                 const targetUrl = `https://missav.live/ko/${fileId}`;
+                const uncThumb = `https://wsrv.nl/?url=fourhoi.com/${uncensoredId}/cover-t.jpg&q=70`;
+                const stdThumb = `https://wsrv.nl/?url=fourhoi.com/${fileId}/cover-t.jpg&q=70`;
         
                 const itemHtml = `
                     <div class="item">
@@ -507,26 +477,21 @@
                         <div class="video-title" id="title-${index}">...</div>
                         <div id="${divId}" class="media-container">
                             <div class="badge-no">노</div>
-                            <img src="${uncThumb}" 
-                                data-fallback="${stdThumb}" 
-                                data-index="${index}"
-                                data-fileid="${fileId}"
+                            <img src="${uncThumb}" data-fallback="${stdThumb}" data-index="${index}" data-fileid="${fileId}"
                                 class="media-content"
                                 onclick="playWebPreview('${divId}', 'https://fourhoi.com/${uncensoredId}/preview.mp4', '${targetUrl}')"
-                                onerror="onThumbnailError(this)"
-                                onload="onWebThumbLoad(this)"
-                            >
+                                onerror="onThumbnailError(this)" onload="onWebThumbLoad(this)">
                         </div>
                         <div class="btn-group">
                             <button class="action-btn btn-play-local" onclick="playLocalVideo(${index})">▶ 재생</button>
                             <button class="action-btn btn-info" onclick="window.open('${targetUrl}', '_blank')">🔗 정보</button>
                         </div>
-                    </div>
-                `;
+                    </div>`;
                 gallery.insertAdjacentHTML('beforeend', itemHtml);
                 
                 if (fileInfo.isRecognized) {
-                    addToQueue(fileId, index, file.name); // file.name도 전달
+                    // [중요] 스캔 모드 큐 추가 (type: 'scan')
+                    addToQueue({ type: 'scan', id: fileId, index: index, filename: file.name });
                 } else {
                     document.getElementById(`title-${index}`).innerText = "ID 추출 실패";
                     updateHistoryTitle(file.name, "ID 추출 실패");
@@ -534,27 +499,32 @@
             });
         });
         
-        // 제목 큐잉
-        function addToQueue(fileId, index, filename) { 
-            titleQueue.push({ id: fileId, index: index, filename: filename, retries: 0 }); 
-            processBatch(); 
+        // ==========================================
+        // 2. 제목 가져오기 (통합 큐 시스템)
+        // ==========================================
+        function addToQueue(item) {
+            // item: { type: 'scan'|'history', id: '...', index/domId: '...', filename: '...' }
+            item.retries = 0;
+            titleQueue.push(item);
+            processBatch();
         }
+        
         async function processBatch() {
             if (isBatchRunning || titleQueue.length === 0) return;
             isBatchRunning = true;
             const batch = titleQueue.splice(0, BATCH_SIZE);
             
-            // 병렬 처리
             await Promise.allSettled(batch.map(item => fetchTitleMissAV(item)));
-            
             setTimeout(() => { isBatchRunning = false; processBatch(); }, 500);
         }
         
-        // [수정] 제목 가져오기 로직 (DB 업데이트 포함)
         async function fetchTitleMissAV(item) {
-            const titleEl = document.getElementById(`title-${item.index}`);
-            // 스캔 화면이 사라져서 엘리먼트가 없어도 DB 업데이트는 해야 함
-            if(titleEl) titleEl.innerText = "확인 중...";
+            // 타겟 엘리먼트 찾기
+            let targetEl = null;
+            if (item.type === 'scan') targetEl = document.getElementById(`title-${item.index}`);
+            else if (item.type === 'history') targetEl = document.getElementById(item.domId);
+        
+            if (targetEl) targetEl.innerText = "확인 중...";
         
             const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://missavtv.com/ko/${item.id}`)}`;
             try {
@@ -562,36 +532,41 @@
                 if (!response.ok) throw new Error("Net");
                 const htmlText = await response.text();
                 const match = htmlText.match(/<title>(.*?)<\/title>/i);
+                
                 if (match && match[1]) {
                     let fullTitle = match[1].replace(" | MissAV", "").replace("무료 스트리밍", "").replace("Online", "");
                     let cleanTitle = fullTitle.replace(new RegExp(item.id, 'gi'), '').trim().replace(/^[-–\s]+/, '');
                     
                     if (cleanTitle && cleanTitle.length > 1) {
-                        // DOM 업데이트 (스캔 화면일 때만)
-                        if(titleEl) {
-                            titleEl.innerText = cleanTitle; 
-                            titleEl.style.color = "#fff";
+                        // UI 업데이트
+                        if (targetEl) {
+                            targetEl.innerText = cleanTitle;
+                            targetEl.style.color = "#fff";
                         }
-                        titleCache[item.index] = cleanTitle;
-                        // [중요] 히스토리 DB 업데이트
+                        // 스캔 모드면 캐시 저장
+                        if (item.type === 'scan') titleCache[item.index] = cleanTitle;
+                        
+                        // [중요] DB 업데이트 (히스토리)
                         updateHistoryTitle(item.filename, cleanTitle);
                         return;
                     }
                 }
-                throw new Error("Fail");
+                throw new Error("Parse Fail");
             } catch (e) {
                 item.retries++;
                 if (item.retries < 2) {
                     titleQueue.push(item); // 재시도
                 } else {
-                    if(titleEl) titleEl.innerText = "제목 없음";
-                    updateHistoryTitle(item.filename, "제목 없음");
+                    if (targetEl) targetEl.innerText = "제목 없음";
+                    // 실패 시 DB에는 저장 안 하거나 '제목 없음' 저장 (선택사항)
+                    // updateHistoryTitle(item.filename, "제목 없음");
                 }
             }
         }
         
+        
         // ==========================================
-        // 2. 히스토리 모드 (폴더 그룹화, 뒤로가기)
+        // 3. 히스토리 모드 (폴더 아코디언, 제목 자동갱신)
         // ==========================================
         function toggleHistoryMode(showHistory) {
             isHistoryMode = showHistory;
@@ -603,52 +578,42 @@
         
             if (showHistory) {
                 scanDiv.style.display = 'none';
-                histDiv.style.display = 'grid'; // Grid로 표시
+                histDiv.style.display = 'block'; // Block for accordion
                 mainCtrl.style.display = 'none';
                 histCtrl.style.display = 'flex';
-                status.innerText = "📚 히스토리 모드 (폴더별 정리)";
+                status.innerText = "📚 히스토리 모드 (폴더명을 누르세요)";
                 renderHistoryView();
             } else {
-                // [중요] 스캔 결과 유지하고 화면만 전환
                 scanDiv.style.display = 'grid';
                 histDiv.style.display = 'none';
                 mainCtrl.style.display = 'flex';
                 histCtrl.style.display = 'none';
-                
-                // 스캔된 게 있으면 복구 메시지, 없으면 안내
                 if(loadedVideos.length > 0) status.innerText = `스캔 완료: 영상 ${loadedVideos.length}개`;
                 else status.innerText = "폴더를 선택하세요.";
             }
         }
         
-        // [핵심] 히스토리 렌더링 (폴더 그룹화 + 썸네일 Fallback)
         function renderHistoryView() {
             if(!db) return;
             const gallery = document.getElementById('gallery-history');
-            gallery.innerHTML = '로딩 중...';
+            gallery.innerHTML = '<div style="color:#777; padding:20px; text-align:center;">로딩 중...</div>';
             
             const tx = db.transaction(HISTORY_STORE, 'readonly').objectStore(HISTORY_STORE).getAll();
             tx.onsuccess = () => {
                 const list = tx.result;
                 if(!list || list.length === 0) {
-                    gallery.innerHTML = '<div style="padding:20px; color:#aaa; grid-column:1/-1; text-align:center;">기록이 없습니다.</div>';
+                    gallery.innerHTML = '<div style="padding:20px; color:#aaa; text-align:center;">기록이 없습니다.</div>';
                     return;
                 }
         
-                // 1. 그룹화 (폴더 경로 기준)
+                // 1. 그룹화
                 const groups = {};
                 list.forEach(item => {
-                    // webkitRelativePath: "Folder/Sub/File.mp4" -> "Folder/Sub"
-                    // 없으면 "기타"
                     let folderName = "기타 (경로 없음)";
                     if (item.path) {
                         const parts = item.path.split('/');
-                        if (parts.length > 1) {
-                            parts.pop(); // 파일명 제거
-                            folderName = parts.join(' / ');
-                        } else {
-                            folderName = "최상위 폴더 (Root)";
-                        }
+                        if (parts.length > 1) { parts.pop(); folderName = parts.join(' / '); }
+                        else folderName = "최상위 폴더 (Root)";
                     }
                     if(!groups[folderName]) groups[folderName] = [];
                     groups[folderName].push(item);
@@ -656,41 +621,61 @@
         
                 // 2. 렌더링
                 gallery.innerHTML = '';
-                // 폴더 이름 정렬
-                const sortedKeys = Object.keys(groups).sort();
+                const sortedFolders = Object.keys(groups).sort();
+                let globalIndex = 0; // DOM ID 생성을 위한 전역 인덱스
         
-                sortedKeys.forEach(folder => {
-                    // 헤더 추가
-                    gallery.insertAdjacentHTML('beforeend', `<div class="history-group-title">📂 ${folder} (${groups[folder].length})</div>`);
+                sortedFolders.forEach((folder, folderIdx) => {
+                    const items = groups[folder].reverse(); // 최신순
+                    const folderId = `folder-content-${folderIdx}`;
                     
-                    // 아이템 추가 (최신순 역순 정렬)
-                    groups[folder].reverse().forEach(item => {
+                    // 폴더 헤더
+                    const headerHtml = `
+                        <div class="history-folder-group">
+                            <div class="history-folder-header" onclick="toggleFolder('${folderId}')">
+                                <span>📂 ${folder}</span>
+                                <span style="font-size:0.8rem; color:#888;">${items.length}개</span>
+                            </div>
+                            <div id="${folderId}" class="history-folder-content">
+                                <!-- 아이템들이 여기에 들어감 -->
+                            </div>
+                        </div>`;
+                    gallery.insertAdjacentHTML('beforeend', headerHtml);
+                    
+                    // 폴더 내부 아이템 생성
+                    const contentDiv = document.getElementById(folderId);
+                    items.forEach(item => {
+                        const domId = `hist-title-${globalIndex++}`;
+                        
                         let thumbSrc = "";
                         let isLocal = false;
-                        
-                        // 로컬 썸네일 우선
-                        if (item.thumbnail) {
-                            thumbSrc = URL.createObjectURL(item.thumbnail);
-                            isLocal = true;
-                        } else {
-                            // 없으면 인터넷 (Uncensored 우선)
-                            const uncensoredId = item.fileId + "-uncensored-leak";
-                            thumbSrc = `https://wsrv.nl/?url=fourhoi.com/${uncensoredId}/cover-t.jpg&q=70`;
-                        }
+                        if (item.thumbnail) { thumbSrc = URL.createObjectURL(item.thumbnail); isLocal = true; }
+                        else { thumbSrc = `https://wsrv.nl/?url=fourhoi.com/${item.fileId}-uncensored-leak/cover-t.jpg&q=70`; }
         
-                        // fallback용 Standard URL
                         const stdThumb = `https://wsrv.nl/?url=fourhoi.com/${item.fileId}/cover-t.jpg&q=70`;
                         const targetUrl = `https://missav.live/ko/${item.fileId}`;
-                        const safeTitle = item.title || item.fileId;
+                        
+                        // 제목 상태 확인 및 큐 추가
+                        let displayTitle = item.title;
+                        if (!displayTitle || displayTitle === "제목 확인 중...") {
+                            displayTitle = "제목 확인 중...";
+                            // [중요] 히스토리 렌더링 시 제목 없으면 자동으로 큐에 추가
+                            if (item.fileId && item.fileId !== "unknown" && item.title !== "ID 추출 실패") {
+                                addToQueue({ type: 'history', id: item.fileId, domId: domId, filename: item.filename });
+                            }
+                        }
         
-                        const html = `
+                        // 경로 정보 alert용
+                        const folderInfo = item.path ? item.path.replace(item.filename, '') : "경로 정보 없음";
+        
+                        const itemHtml = `
                             <div class="item history-item">
-                                <div class="filename" style="color:#b197fc">${item.filename}</div>
-                                <div class="video-title">${safeTitle}</div>
+                                <div class="filename" style="color:#b197fc; cursor:pointer; text-decoration:underline;" 
+                                     onclick="alert('📂 원래 위치:\\n${folderInfo}')">
+                                    ${item.filename}
+                                </div>
+                                <div class="video-title" id="${domId}">${displayTitle}</div>
                                 <div class="media-container" onclick="window.open('${targetUrl}', '_blank')">
-                                    <img src="${thumbSrc}" 
-                                         class="media-content" 
-                                         style="opacity:${isLocal ? 1 : 0.8}"
+                                    <img src="${thumbSrc}" class="media-content" style="opacity:${isLocal?1:0.8}"
                                          onerror="onHistoryThumbError(this, '${stdThumb}')">
                                     ${!isLocal ? '<div class="badge-no" style="background:#555; right:5px; left:auto; width:auto; padding:0 5px; border-radius:4px;">Web</div>' : ''}
                                 </div>
@@ -698,29 +683,27 @@
                                     <button class="action-btn btn-search" onclick="window.open('${targetUrl}', '_blank')">🔍 MissAV</button>
                                     <button class="action-btn btn-delete-hist" onclick="deleteFromHistory('${item.filename}')">✕</button>
                                 </div>
-                            </div>
-                        `;
-                        gallery.insertAdjacentHTML('beforeend', html);
+                            </div>`;
+                        contentDiv.insertAdjacentHTML('beforeend', itemHtml);
                     });
                 });
             };
         }
         
-        // [신규] 히스토리 전용 썸네일 에러 처리
-        function onHistoryThumbError(img, fallbackUrl) {
-            if (img.src !== fallbackUrl) {
-                img.src = fallbackUrl; // 2차 시도 (Standard)
-            } else {
-                // 2차도 실패하면 플레이스홀더
-                img.onerror = null;
-                img.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiB2aWV3Qm94PSIwIDAgMTAwIDEwMCI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCIgeT0iNTAiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObzwvdGV4dD48L3N2Zz4=';
-                img.style.opacity = 0.3;
-            }
+        // 폴더 토글 함수
+        function toggleFolder(id) {
+            const el = document.getElementById(id);
+            if(el.style.display === 'grid') el.style.display = 'none';
+            else el.style.display = 'grid';
         }
         
+        function onHistoryThumbError(img, fallbackUrl) {
+            if (img.src !== fallbackUrl) img.src = fallbackUrl;
+            else { img.onerror = null; img.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiB2aWV3Qm94PSIwIDAgMTAwIDEwMCI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCIgeT0iNTAiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObzwvdGV4dD48L3N2Zz4='; img.style.opacity = 0.3; }
+        }
         
         // ==========================================
-        // 3. 기타 유틸 & 플레이어
+        // 4. 기타 유틸 & 플레이어 (변경 없음)
         // ==========================================
         function parseFileId(nameNoExt) {
             const fc2Match = nameNoExt.match(/fc2[-\s\.]?(?:ppv)?[-\s\.]?(\d+)/i);
@@ -729,24 +712,19 @@
             const dateMatch = nameNoExt.match(/(\d{6})[-\s\.]?(\d{3,})/);
             const nMatch = nameNoExt.match(/n(\d{3,5})/i);
             const stdMatch = nameNoExt.match(/([a-z]+)[-\s\.]?(\d+)/i);
-        
             if (fc2Match) return { id: `fc2-ppv-${fc2Match[1]}`, isRecognized: true };
             if (caribMatch) return { id: `caribbeancom-${caribMatch[1]}-${caribMatch[2]}`, isRecognized: true };
             if (mixedDateMatch) return { id: `${mixedDateMatch[1]}${mixedDateMatch[2]}${mixedDateMatch[3]}`, isRecognized: true };
             if (dateMatch) return { id: `${dateMatch[1]}-${dateMatch[2]}`, isRecognized: true };
             if (nMatch) return { id: `n${nMatch[1]}`, isRecognized: true };
             if (stdMatch) return { id: `${stdMatch[1].toLowerCase()}-${stdMatch[2]}`, isRecognized: true };
-            
             return { id: nameNoExt.toLowerCase(), isRecognized: false };
         }
-        
-        // 썸네일 관련
         function onWebThumbLoad(img) {
             const index = img.dataset.index;
             const file = loadedVideos[index];
             const fileId = img.dataset.fileid;
             if(!file || !fileId || isHistoryMode) return;
-        
             try {
                 const cvs = document.createElement('canvas');
                 cvs.width = img.naturalWidth; cvs.height = img.naturalHeight;
@@ -757,12 +735,10 @@
                 }, 'image/jpeg', 0.8);
             } catch(e) {}
         }
-        
         async function onThumbnailError(img) {
             const index = img.dataset.index;
             const file = loadedVideos[index];
             if (!file) return;
-        
             if (db) {
                 const key = getCacheKey(file);
                 const getReq = db.transaction(THUMB_STORE, 'readonly').objectStore(THUMB_STORE).get(key);
@@ -776,7 +752,6 @@
                 };
             } else { tryNextFallback(img); }
         }
-        
         function tryNextFallback(img) {
             const fallbackUrl = img.dataset.fallback;
             const currentSrc = img.getAttribute('src');
@@ -794,23 +769,19 @@
                 if (e.isIntersecting) { generateLocalThumbnail(e.target); obs.unobserve(e.target); }
             });
         }, { rootMargin: '200px' });
-        
         async function generateLocalThumbnail(imgEl) {
             const index = imgEl.dataset.index;
             const file = loadedVideos[index];
             if (!file) return;
-        
             const video = document.createElement('video');
             video.src = URL.createObjectURL(file);
             video.muted = true; video.playsInline = true; video.currentTime = 15; 
-        
             const capture = () => {
                 try {
                     const cvs = document.createElement('canvas');
                     const scale = 320 / video.videoWidth; 
                     cvs.width = 320; cvs.height = video.videoHeight * scale;
                     cvs.getContext('2d').drawImage(video, 0, 0, cvs.width, cvs.height);
-        
                     cvs.toBlob(blob => {
                         if (blob) {
                             const url = URL.createObjectURL(blob);
@@ -831,7 +802,7 @@
             video.onseeked = capture; video.onerror = () => URL.revokeObjectURL(video.src); video.load();
         }
         
-        // 플레이어 관련 (기존 기능 유지)
+        // --- Player Logic (No Changes) ---
         const modal = document.getElementById('videoModal');
         const player = document.getElementById('mainPlayer');
         const playIcon = document.getElementById('playIcon');
@@ -1004,7 +975,6 @@
         function setSpeed(rate) { player.playbackRate = rate; document.getElementById('speedBtnText').innerText = rate; toggleMenu('speedMenu'); }
         function toggleFullscreen() { if (!document.fullscreenElement) videoWrapper.requestFullscreen().catch(() => {}); else document.exitFullscreen(); }
         function srtToVtt(srt) { return "WEBVTT\n\n" + srt.replace(/(\d{2}):(\d{2}):(\d{2}),(\d{3})/g, '$1:$2:$3.$4'); }
-  
     </script>
 </body>
 </html>
