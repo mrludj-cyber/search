@@ -5,7 +5,7 @@
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#000000">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>JAV Folder Player (Smart Scan Support)</title>
+    <title>Mov Player (Smart Scan Support)</title>
     <style>
         /* === 기본 스타일 === */
         html { background-color: #000000; height: 100%; }
@@ -1325,30 +1325,101 @@
         videoWrapper.addEventListener('mousedown', onGestureStart); videoWrapper.addEventListener('mousemove', onGestureMove); videoWrapper.addEventListener('mouseup', onGestureEnd); videoWrapper.addEventListener('mouseleave', onGestureEnd); 
         function onGestureStart(e) {
             if(e.target.closest('.controls-bar') || e.target.closest('.popup-menu') || e.target.closest('.sub-list-modal') || e.target.tagName === 'BUTTON') return;
-            isTouching = true; isSpeeding = false; wasPlayingBeforeDrag = !player.paused; 
-            touchStartX = (e.type === 'touchstart' ? e.touches[0].clientX : e.clientX); touchStartTime = player.currentTime;
+            
+            isTouching = true; 
+            isSpeeding = false; 
+            wasPlayingBeforeDrag = !player.paused; 
+            
+            touchStartX = (e.type === 'touchstart' ? e.touches[0].clientX : e.clientX); 
+            touchStartTime = player.currentTime;
+            
             if (wasPlayingBeforeDrag) {
                 longPressTimer = setTimeout(() => {
-                    if (isTouching && !isDraggingSeek) { isSpeeding = true; savedSpeed = player.playbackRate; player.playbackRate = 4.0; gestureFeedback.style.opacity = '1'; gestureFeedback.innerText = '⏩ 4.0x'; }
+                    // 드래그(탐색) 중이 아니고 터치 중일 때만 4배속 실행
+                    if (isTouching && !isDraggingSeek) { 
+                        isSpeeding = true; 
+                        savedSpeed = player.playbackRate; 
+                        player.playbackRate = 4.0; 
+                        
+                        // [요청 2] 4배속 시에는 좌측 상단에 표시 (기존 중앙 정렬 덮어쓰기)
+                        gestureFeedback.style.top = '60px'; // 타이틀바와 겹치지 않게 약간 아래
+                        gestureFeedback.style.left = '20px';
+                        gestureFeedback.style.transform = 'none'; // translate(-50%, -50%) 해제
+                        
+                        gestureFeedback.style.opacity = '1'; 
+                        gestureFeedback.innerText = '⏩ 4.0x'; 
+                    }
                 }, 300);
             }
         }
         function onGestureMove(e) {
-            if (!isTouching) return; if(e.cancelable) e.preventDefault(); 
-            const currentX = (e.type === 'touchmove' ? e.touches[0].clientX : e.clientX); const diffX = currentX - touchStartX;
+            if (!isTouching) return; 
+            
+            // [요청 1] 4배속 플레이(롱프레스)가 이미 활성화된 상태라면 드래그(시간이동) 무시
+            if (isSpeeding) return;
+
+            if(e.cancelable) e.preventDefault(); 
+            
+            const currentX = (e.type === 'touchmove' ? e.touches[0].clientX : e.clientX); 
+            const diffX = currentX - touchStartX;
+            
+            // 드래그 감지 (5px 이상 움직임)
             if (Math.abs(diffX) > 5) {
+                // 움직임이 감지되면 롱프레스(4배속) 타이머 취소
                 clearTimeout(longPressTimer);
-                if (isSpeeding) { isSpeeding = false; player.playbackRate = savedSpeed; gestureFeedback.style.opacity = '0'; }
+                
+                // 만약 아주 짧은 찰나에 4배속이 켜졌다면 끄기
+                if (isSpeeding) { 
+                    isSpeeding = false; 
+                    player.playbackRate = savedSpeed; 
+                    gestureFeedback.style.opacity = '0'; 
+                }
+
                 if (wasPlayingBeforeDrag && !player.paused) player.pause();
-                const timeDiff = diffX * SENSITIVITY; let targetTime = touchStartTime + timeDiff;
-                if (targetTime < 0) targetTime = 0; if (targetTime > player.duration) targetTime = player.duration;
-                seekBar.value = targetTime; document.getElementById('currentTimeText').innerText = formatTime(targetTime); gestureFeedback.style.opacity = '1'; gestureFeedback.innerText = formatTime(targetTime);
+                
+                // 시간이동 계산
+                const timeDiff = diffX * SENSITIVITY; 
+                let targetTime = touchStartTime + timeDiff;
+                if (targetTime < 0) targetTime = 0; 
+                if (targetTime > player.duration) targetTime = player.duration;
+                
+                seekBar.value = targetTime; 
+                document.getElementById('currentTimeText').innerText = formatTime(targetTime); 
+                
+                // 시간이동 시에는 다시 중앙 정렬로 복구
+                gestureFeedback.style.top = '50%';
+                gestureFeedback.style.left = '50%';
+                gestureFeedback.style.transform = 'translate(-50%, -50%)';
+                
+                gestureFeedback.style.opacity = '1'; 
+                gestureFeedback.innerText = formatTime(targetTime);
+                
                 if (!player.seeking) player.currentTime = targetTime;
             }
         }
         function onGestureEnd(e) {
             clearTimeout(longPressTimer);
-            if (isTouching) { isTouching = false; if (isSpeeding) { player.playbackRate = savedSpeed; isSpeeding = false; gestureFeedback.style.opacity = '0'; } else { gestureFeedback.style.opacity = '0'; if(wasPlayingBeforeDrag) player.play(); } }
+            if (isTouching) { 
+                isTouching = false; 
+                
+                // 4배속 중이었다면 속도 복구 및 UI 숨김
+                if (isSpeeding) { 
+                    player.playbackRate = savedSpeed; 
+                    isSpeeding = false; 
+                    gestureFeedback.style.opacity = '0'; 
+                } else { 
+                    // 시간이동 중이었다면 UI 숨기고 재생 재개
+                    gestureFeedback.style.opacity = '0'; 
+                    if(wasPlayingBeforeDrag) player.play(); 
+                }
+                
+                // [정리] 다음 제스처를 위해 스타일을 기본값(중앙)으로 되돌려 놓음 (CSS 클래스 기본값 따름)
+                setTimeout(() => {
+                    gestureFeedback.style.top = '50%';
+                    gestureFeedback.style.left = '50%';
+                    gestureFeedback.style.transform = 'translate(-50%, -50%)';
+                }, 200);
+            }
         }
         function toggleControls() {
             const bar = document.getElementById('controlsBar'); const titleBar = document.getElementById('videoTitleBar');
