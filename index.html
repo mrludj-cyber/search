@@ -733,39 +733,47 @@
                     const contentDiv = document.getElementById(folderId);
                     items.forEach(item => {
                         const domTitleId = `hist-title-${globalIndex}`;
-                        const domMediaId = `hist-media-${globalIndex}`; // [신규] 미디어 컨테이너용 고유 ID
+                        const domMediaId = `hist-media-${globalIndex}`; 
+                        const domBadgeId = `hist-badge-${globalIndex}`; // [신규] 뱃지 제어용 ID
                         globalIndex++;
                         
                         let thumbSrc = "";
                         let isLocal = false;
                         let clickAction = "";
-
-                        // [중요] 1. 로컬 썸네일인 경우 (4분할 프리뷰 연결)
+                        let badgeHtml = "";
+                        
+                        // 표준 정보 (fallback용)
+                        const stdThumb = `https://wsrv.nl/?url=fourhoi.com/${item.fileId}/cover-t.jpg&q=70`;
+                        const targetUrl = `https://missav.live/ko/${item.fileId}`;
+        
+                        // [중요] 1. 로컬 파일
                         if (item.thumbnail) { 
                             thumbSrc = URL.createObjectURL(item.thumbnail); 
                             isLocal = true; 
+                            badgeHtml = '<div class="cache-status-badge status-completed">✅</div>';
                             
-                            // [수정] item.name 대신 item.filename 사용 (DB에 저장된 필드명은 filename임)
                             if(item.size && item.lastModified) {
-                                // 문자열에 따옴표 처리 주의
                                 clickAction = `onclick="openHistoryLocalPreview('${item.filename.replace(/'/g, "\\'")}', ${item.size}, ${item.lastModified})"`;
                             } else {
                                 clickAction = `onclick="alert('메타데이터가 없습니다. 다시 스캔해주세요.')"`;
                             }
                         } 
-                        // [중요] 2. 웹 썸네일인 경우 (샘플 영상 재생 연결)
+                        // [중요] 2. 웹 파일 (노모 우선 로직 적용)
                         else { 
                             const uncensoredId = item.fileId + "-uncensored-leak";
+                            // 기본적으로 노모 썸네일 시도
                             thumbSrc = `https://wsrv.nl/?url=fourhoi.com/${uncensoredId}/cover-t.jpg&q=70`; 
-                            const targetUrl = `https://missav.live/ko/${item.fileId}`;
                             const previewVideoUrl = `https://fourhoi.com/${uncensoredId}/preview.mp4`;
-
-                            // [수정] playWebPreview 호출 (ID 전달)
+        
+                            // 노모 미리보기 연결 (실패 시 에러 핸들러에서 뱃지 숨김 처리)
                             clickAction = `onclick="playWebPreview('${domMediaId}', '${previewVideoUrl}', '${targetUrl}')"`;
+                            
+                            // 기본적으로 노모 뱃지 표시, Web 뱃지 표시
+                            badgeHtml = `
+                                <div id="${domBadgeId}" class="badge-no">노</div>
+                                <div class="badge-no" style="background:#555; right:5px; left:auto; width:auto; padding:0 5px; border-radius:4px;">Web</div>
+                            `;
                         }
-
-                        const stdThumb = `https://wsrv.nl/?url=fourhoi.com/${item.fileId}/cover-t.jpg&q=70`;
-                        const targetUrl = `https://missav.live/ko/${item.fileId}`;
                         
                         let displayTitle = item.title;
                         if (!displayTitle || displayTitle === "제목 확인 중...") {
@@ -775,7 +783,8 @@
                             }
                         }
                         const folderInfo = item.path ? item.path.replace(item.filename, '') : "경로 정보 없음";
-
+        
+                        // onHistoryThumbError에 stdThumb와 domBadgeId 전달
                         const itemHtml = `
                             <div class="item history-item">
                                 <div class="filename" style="color:#b197fc; cursor:pointer; text-decoration:underline;" 
@@ -784,14 +793,12 @@
                                 </div>
                                 <div class="video-title" id="${domTitleId}">${displayTitle}</div>
                                 
-                                <!-- ID 부여 및 클릭 액션 적용 -->
                                 <div id="${domMediaId}" class="media-container" ${clickAction} style="cursor:pointer;">
                                     <img src="${thumbSrc}" class="media-content" style="opacity:${isLocal?1:0.8}"
-                                            onerror="onHistoryThumbError(this, '${stdThumb}')">
-                                    ${!isLocal ? '<div class="badge-no" style="background:#555; right:5px; left:auto; width:auto; padding:0 5px; border-radius:4px;">Web</div>' : ''}
-                                    ${isLocal ? '<div class="cache-status-badge status-completed">✅</div>' : ''}
+                                            onerror="onHistoryThumbError(this, '${stdThumb}', '${domBadgeId}', '${domMediaId}', '${targetUrl}')">
+                                    ${badgeHtml}
                                 </div>
-
+        
                                 <div class="btn-group">
                                     <button class="action-btn btn-search" onclick="window.open('${targetUrl}', '_blank')">🔍 GO</button>
                                     <button class="action-btn btn-delete-hist" onclick="deleteFromHistory('${item.path.replace(/'/g, "\\'")}')">✕</button>
@@ -848,9 +855,31 @@
             else el.style.display = 'grid';
         }
         
-        function onHistoryThumbError(img, fallbackUrl) {
-            if (img.src !== fallbackUrl) img.src = fallbackUrl;
-            else { img.onerror = null; img.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiB2aWV3Qm94PSIwIDAgMTAwIDEwMCI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCIgeT0iNTAiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObzwvdGV4dD48L3N2Zz4='; img.style.opacity = 0.3; }
+        function onHistoryThumbError(img, fallbackUrl, badgeId, mediaId, targetUrl) {
+            // 이미 fallback으로 바뀐 상태라면 기본 에러 이미지 처리
+            if (img.src === fallbackUrl) {
+                img.onerror = null; 
+                img.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiB2aWV3Qm94PSIwIDAgMTAwIDEwMCI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCIgeT0iNTAiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObzwvdGV4dD48L3N2Zz4='; 
+                img.style.opacity = 0.3;
+                // 뱃지도 숨김
+                const badge = document.getElementById(badgeId);
+                if(badge) badge.style.display = 'none';
+            } else {
+                // 노모 썸네일 실패 -> 일반 썸네일로 교체
+                img.src = fallbackUrl;
+                
+                // "노" 뱃지 숨기기
+                const badge = document.getElementById(badgeId);
+                if(badge) badge.style.display = 'none';
+        
+                // [중요] 클릭 액션도 노모 미리보기 -> 일반 링크/미리보기로 변경해야 함
+                // 여기서는 간단히 클릭 시 미리보기 대신 바로 새창 이동하도록 변경 (미리보기 영상이 다를 수 있으므로)
+                const container = document.getElementById(mediaId);
+                if(container) {
+                    // 기존 onclick 속성을 덮어씌움
+                    container.onclick = function() { window.open(targetUrl, '_blank'); };
+                }
+            }
         }
         
         // ==========================================
@@ -1203,7 +1232,19 @@
         const gestureFeedback = document.getElementById('gestureFeedback');
         const subListModal = document.getElementById('subListModal');
         const subListContent = document.getElementById('subListContent');
-        let isDraggingSeek = false; let touchStartX = 0; let touchStartTime = 0; let isTouching = false; let wasPlayingBeforeDrag = false; const SENSITIVITY = 0.2; let currentSubtitleKey = "";
+        let isDraggingSeek = false; 
+        let touchStartX = 0; 
+        let touchStartTime = 0; 
+        let isTouching = false; 
+        let wasPlayingBeforeDrag = false; 
+        const SENSITIVITY = 0.2; 
+        let currentSubtitleKey = "";
+        
+        // [신규] 핀치 줌 관련 변수 추가
+        let isPinching = false;
+        let initialPinchDistance = 0;
+        let lastScale = 1;
+        let currentScale = 1;
         
         function clearSubtitles() {
             if (player.textTracks) for (let i = 0; i < player.textTracks.length; i++) player.textTracks[i].mode = 'disabled';
@@ -1258,7 +1299,17 @@
             reader.readAsText(file, 'UTF-8');
         }
         function loadSubtitleManual(input) { if (input.files && input.files[0]) readAndAttachSubtitle(input.files[0], false); }
-        function closeModal() { if (document.fullscreenElement) document.exitFullscreen(); modal.style.display = 'none'; player.pause(); clearSubtitles(); player.src = ""; }
+        function closeModal() { 
+            if (document.fullscreenElement) document.exitFullscreen(); 
+            modal.style.display = 'none'; 
+            player.pause(); 
+            clearSubtitles(); 
+            player.src = ""; 
+            
+            // [신규] 줌 초기화
+            currentScale = 1; 
+            player.style.transform = 'scale(1)'; 
+        }
         function toggleSubList() {
             const isVisible = subListModal.style.display === 'flex'; subListModal.style.display = isVisible ? 'none' : 'flex';
             if(!isVisible) {
@@ -1323,28 +1374,40 @@
         videoWrapper.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; });
         videoWrapper.addEventListener('touchstart', onGestureStart, {passive: false}); videoWrapper.addEventListener('touchmove', onGestureMove, {passive: false}); videoWrapper.addEventListener('touchend', onGestureEnd);
         videoWrapper.addEventListener('mousedown', onGestureStart); videoWrapper.addEventListener('mousemove', onGestureMove); videoWrapper.addEventListener('mouseup', onGestureEnd); videoWrapper.addEventListener('mouseleave', onGestureEnd); 
+
         function onGestureStart(e) {
             if(e.target.closest('.controls-bar') || e.target.closest('.popup-menu') || e.target.closest('.sub-list-modal') || e.target.tagName === 'BUTTON') return;
             
+            // [신규] 2손가락 터치 시 핀치 줌 시작
+            if (e.touches && e.touches.length === 2) {
+                isPinching = true;
+                // 두 손가락 사이의 거리 계산
+                initialPinchDistance = Math.hypot(
+                    e.touches[0].pageX - e.touches[1].pageX,
+                    e.touches[0].pageY - e.touches[1].pageY
+                );
+                lastScale = currentScale; // 현재 스케일 기억
+                return; // 탐색/배속 로직 실행 방지
+            }
+        
             isTouching = true; 
             isSpeeding = false; 
             wasPlayingBeforeDrag = !player.paused; 
             
+            // 1손가락 터치 좌표
             touchStartX = (e.type === 'touchstart' ? e.touches[0].clientX : e.clientX); 
             touchStartTime = player.currentTime;
             
             if (wasPlayingBeforeDrag) {
                 longPressTimer = setTimeout(() => {
-                    // 드래그(탐색) 중이 아니고 터치 중일 때만 4배속 실행
-                    if (isTouching && !isDraggingSeek) { 
+                    if (isTouching && !isDraggingSeek && !isPinching) { // 핀치 중 아닐 때만
                         isSpeeding = true; 
                         savedSpeed = player.playbackRate; 
                         player.playbackRate = 4.0; 
                         
-                        // [요청 2] 4배속 시에는 좌측 상단에 표시 (기존 중앙 정렬 덮어쓰기)
-                        gestureFeedback.style.top = '60px'; // 타이틀바와 겹치지 않게 약간 아래
+                        gestureFeedback.style.top = '60px'; 
                         gestureFeedback.style.left = '20px';
-                        gestureFeedback.style.transform = 'none'; // translate(-50%, -50%) 해제
+                        gestureFeedback.style.transform = 'none'; 
                         
                         gestureFeedback.style.opacity = '1'; 
                         gestureFeedback.innerText = '⏩ 4.0x'; 
@@ -1352,32 +1415,56 @@
                 }, 300);
             }
         }
+        
         function onGestureMove(e) {
-            if (!isTouching) return; 
+            // [신규] 핀치 줌 로직
+            if (isPinching && e.touches && e.touches.length === 2) {
+                if(e.cancelable) e.preventDefault(); // 화면 스크롤 방지
+        
+                const currentDist = Math.hypot(
+                    e.touches[0].pageX - e.touches[1].pageX,
+                    e.touches[0].pageY - e.touches[1].pageY
+                );
+        
+                if (initialPinchDistance > 0) {
+                    const zoomFactor = currentDist / initialPinchDistance;
+                    // 줌 범위 제한 (1.0배 ~ 5.0배)
+                    let newScale = lastScale * zoomFactor;
+                    newScale = Math.min(Math.max(newScale, 1.0), 5.0);
+                    
+                    currentScale = newScale;
+                    player.style.transform = `scale(${currentScale})`;
+                    
+                    // 줌 상태 표시 (선택 사항)
+                    gestureFeedback.style.top = '50%';
+                    gestureFeedback.style.left = '50%';
+                    gestureFeedback.style.transform = 'translate(-50%, -50%)';
+                    gestureFeedback.style.opacity = '1';
+                    gestureFeedback.innerText = `🔍 ${currentScale.toFixed(1)}x`;
+                }
+                return;
+            }
+        
+            if (!isTouching || isPinching) return; // 핀치 중이면 탐색 안 함
             
-            // [요청 1] 4배속 플레이(롱프레스)가 이미 활성화된 상태라면 드래그(시간이동) 무시
             if (isSpeeding) return;
-
+        
             if(e.cancelable) e.preventDefault(); 
             
             const currentX = (e.type === 'touchmove' ? e.touches[0].clientX : e.clientX); 
             const diffX = currentX - touchStartX;
             
-            // 드래그 감지 (5px 이상 움직임)
             if (Math.abs(diffX) > 5) {
-                // 움직임이 감지되면 롱프레스(4배속) 타이머 취소
                 clearTimeout(longPressTimer);
                 
-                // 만약 아주 짧은 찰나에 4배속이 켜졌다면 끄기
                 if (isSpeeding) { 
                     isSpeeding = false; 
                     player.playbackRate = savedSpeed; 
                     gestureFeedback.style.opacity = '0'; 
                 }
-
+        
                 if (wasPlayingBeforeDrag && !player.paused) player.pause();
                 
-                // 시간이동 계산
                 const timeDiff = diffX * SENSITIVITY; 
                 let targetTime = touchStartTime + timeDiff;
                 if (targetTime < 0) targetTime = 0; 
@@ -1386,7 +1473,6 @@
                 seekBar.value = targetTime; 
                 document.getElementById('currentTimeText').innerText = formatTime(targetTime); 
                 
-                // 시간이동 시에는 다시 중앙 정렬로 복구
                 gestureFeedback.style.top = '50%';
                 gestureFeedback.style.left = '50%';
                 gestureFeedback.style.transform = 'translate(-50%, -50%)';
@@ -1397,23 +1483,32 @@
                 if (!player.seeking) player.currentTime = targetTime;
             }
         }
+        
         function onGestureEnd(e) {
             clearTimeout(longPressTimer);
+        
+            // [신규] 핀치 종료 처리
+            if (isPinching) {
+                // 손가락을 모두 떼면 핀치 종료로 간주
+                if (!e.touches || e.touches.length === 0) {
+                    isPinching = false;
+                    gestureFeedback.style.opacity = '0';
+                }
+                return;
+            }
+        
             if (isTouching) { 
                 isTouching = false; 
                 
-                // 4배속 중이었다면 속도 복구 및 UI 숨김
                 if (isSpeeding) { 
                     player.playbackRate = savedSpeed; 
                     isSpeeding = false; 
                     gestureFeedback.style.opacity = '0'; 
                 } else { 
-                    // 시간이동 중이었다면 UI 숨기고 재생 재개
                     gestureFeedback.style.opacity = '0'; 
                     if(wasPlayingBeforeDrag) player.play(); 
                 }
                 
-                // [정리] 다음 제스처를 위해 스타일을 기본값(중앙)으로 되돌려 놓음 (CSS 클래스 기본값 따름)
                 setTimeout(() => {
                     gestureFeedback.style.top = '50%';
                     gestureFeedback.style.left = '50%';
@@ -1421,6 +1516,7 @@
                 }, 200);
             }
         }
+        
         function toggleControls() {
             const bar = document.getElementById('controlsBar'); const titleBar = document.getElementById('videoTitleBar');
             if (bar.style.opacity === '0') { bar.style.opacity = '1'; bar.style.pointerEvents = 'auto'; titleBar.style.opacity = '1'; }
