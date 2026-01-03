@@ -742,12 +742,11 @@
                         let clickAction = "";
                         let badgeHtml = "";
                         
-                        // [표준 정보 정의]
+                        // [기본 정보]
                         const stdThumb = `https://wsrv.nl/?url=fourhoi.com/${item.fileId}/cover-t.jpg&q=70`;
-                        const stdPreviewUrl = `https://fourhoi.com/${item.fileId}/preview.mp4`; // 일반 미리보기 주소
                         const targetUrl = `https://missav.live/ko/${item.fileId}`;
         
-                        // 1. 로컬 파일 (DB에 썸네일 존재)
+                        // 1. 로컬 썸네일이 있는 경우
                         if (item.thumbnail) { 
                             thumbSrc = URL.createObjectURL(item.thumbnail); 
                             isLocal = true; 
@@ -758,13 +757,14 @@
                                 clickAction = `onclick="alert('메타데이터가 없습니다. 다시 스캔해주세요.')"`;
                             }
                         } 
-                        // 2. 웹 파일 (DB 썸네일 없음) - 노모 우선 시도
+                        // 2. 웹 썸네일인 경우 (노모 우선 시도)
                         else { 
                             const uncensoredId = item.fileId + "-uncensored-leak";
                             thumbSrc = `https://wsrv.nl/?url=fourhoi.com/${uncensoredId}/cover-t.jpg&q=70`; 
-                            const uncPreviewUrl = `https://fourhoi.com/${uncensoredId}/preview.mp4`; // 노모 미리보기 주소
+                            const uncPreviewUrl = `https://fourhoi.com/${uncensoredId}/preview.mp4`;
         
-                            // [핵심] 초기 클릭 액션은 노모 주소로 설정
+                            // [핵심] 처음에는 무조건 "노모 주소"로 클릭 이벤트를 겁니다.
+                            // 나중에 에러가 나면 replace로 저 주소만 싹 고칠 겁니다.
                             clickAction = `onclick="playWebPreview('${domMediaId}', '${uncPreviewUrl}', '${targetUrl}')"`;
                             
                             badgeHtml = `
@@ -782,7 +782,7 @@
                         }
                         const folderInfo = item.path ? item.path.replace(item.filename, '') : "경로 정보 없음";
         
-                        // [핵심] onerror 발생 시 stdPreviewUrl도 전달
+                        // [수정] onerror 인자에서 stdPreviewUrl 제거 (필요 없음)
                         const itemHtml = `
                             <div class="item history-item">
                                 <div class="filename" style="color:#b197fc; cursor:pointer; text-decoration:underline;" 
@@ -793,7 +793,7 @@
                                 
                                 <div id="${domMediaId}" class="media-container" ${clickAction} style="cursor:pointer;">
                                     <img src="${thumbSrc}" class="media-content" style="opacity:${isLocal?1:0.8}"
-                                            onerror="onHistoryThumbError(this, '${stdThumb}', '${domBadgeId}', '${domMediaId}', '${targetUrl}', '${stdPreviewUrl}')">
+                                            onerror="onHistoryThumbError(this, '${stdThumb}', '${domBadgeId}', '${domMediaId}', '${targetUrl}')">
                                     ${badgeHtml}
                                 </div>
         
@@ -853,8 +853,8 @@
             else el.style.display = 'grid';
         }
         
-        function onHistoryThumbError(img, fallbackUrl, badgeId, mediaId, targetUrl, normalPreviewUrl) {
-            // 1. 이미 일반 썸네일로 교체된 상태에서도 에러가 난 경우 (최종 실패)
+        function onHistoryThumbError(img, fallbackUrl, badgeId, mediaId, targetUrl) {
+            // 1. 이미 fallback(일반 썸네일)으로 바뀐 상태에서도 또 에러가 난 경우 (최종 실패)
             if (img.src === fallbackUrl) {
                 img.onerror = null; 
                 img.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiB2aWV3Qm94PSIwIDAgMTAwIDEwMCI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCIgeT0iNTAiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObzwvdGV4dD48L3N2Zz4='; 
@@ -866,27 +866,34 @@
                 // 이미지가 아예 없으면 클릭 시 새창 이동(GO)으로 변경
                 const container = document.getElementById(mediaId);
                 if(container) {
-                    container.setAttribute('onclick', `window.open('${targetUrl}', '_blank')`);
                     container.onclick = null;
+                    container.setAttribute('onclick', `window.open('${targetUrl}', '_blank')`);
                 }
         
             } else {
-                // 2. 노모 썸네일 로드 실패 -> 일반 썸네일로 교체 및 미리보기 주소 변경
+                // 2. 노모 썸네일 로드 실패 -> 일반 썸네일로 교체
                 img.src = fallbackUrl;
                 
                 // "노" 뱃지 숨기기
                 const badge = document.getElementById(badgeId);
                 if(badge) badge.style.display = 'none';
         
-                // [수정 핵심] 컨테이너의 onclick 속성 문자열을 '일반 미리보기' 함수 호출로 완전히 교체
+                // [수정 핵심] 스캔 모드와 동일한 방식: 기존 onclick 주소에서 '-uncensored-leak' 문자열만 삭제
                 const container = document.getElementById(mediaId);
                 if(container) {
-                    // 기존 노모 주소(...)가 들어있는 onclick을 일반 주소(normalPreviewUrl)로 새로 씀
-                    const newClickAttr = `playWebPreview('${mediaId}', '${normalPreviewUrl}', '${targetUrl}')`;
-                    container.setAttribute('onclick', newClickAttr);
+                    // HTML에 적혀있는 onclick 속성값(문자열)을 가져옵니다.
+                    const currentClick = container.getAttribute('onclick');
                     
-                    // 혹시 JS 프로퍼티로 할당된 게 있다면 초기화 (HTML 속성 우선 적용)
-                    container.onclick = null;
+                    if (currentClick) {
+                        // 노모 식별자 제거 -> 자동으로 일반 주소가 됨
+                        const newClick = currentClick.replace('-uncensored-leak', '');
+                        
+                        // 변경된 속성 다시 적용
+                        container.setAttribute('onclick', newClick);
+                        
+                        // 혹시 JS property로 할당된 게 있다면 초기화 (HTML 속성 우선)
+                        container.onclick = null;
+                    }
                 }
             }
         }
