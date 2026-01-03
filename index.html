@@ -856,7 +856,7 @@
         }
         
         function onHistoryThumbError(img, fallbackUrl, badgeId, mediaId, targetUrl, fileId) {
-            // 1. 이미 fallback으로 교체된 상태 (최종 실패)
+            // 1. 이미 fallback(일반 썸네일)으로 바뀐 상태에서도 또 에러가 난 경우 (최종 실패)
             if (img.src === fallbackUrl) {
                 img.onerror = null; 
                 img.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiB2aWV3Qm94PSIwIDAgMTAwIDEwMCI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCIgeT0iNTAiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObzwvdGV4dD48L3N2Zz4='; 
@@ -865,6 +865,7 @@
                 const badge = document.getElementById(badgeId);
                 if(badge) badge.style.display = 'none';
         
+                // 이미지가 아예 없으면 클릭 시 새창 이동(GO)으로 변경
                 const container = document.getElementById(mediaId);
                 if(container) {
                     container.onclick = null;
@@ -872,21 +873,25 @@
                 }
         
             } else {
-                // 2. 노모 실패 -> 일반 전환
+                // 2. 노모 썸네일 로드 실패 -> 일반 썸네일로 교체
                 img.src = fallbackUrl;
                 
+                // "노" 뱃지 숨기기
                 const badge = document.getElementById(badgeId);
                 if(badge) badge.style.display = 'none';
         
+                // [핵심 수정] 부모 컨테이너(div)의 클릭 이벤트를 '일반 미리보기 주소'로 교체
                 const container = document.getElementById(mediaId);
                 if(container && fileId) {
-                    // [수정] 문자열 치환 대신 정확한 URL로 재설정
-                    const correctPreviewUrl = `https://fourhoi.com/${fileId}/preview.mp4`;
+                    // uncensored-leak 등의 수식어가 없는 깔끔한 ID로 주소 생성
+                    const cleanPreviewUrl = `https://fourhoi.com/${fileId}/preview.mp4`;
                     
-                    // onclick 속성을 안전하게 덮어쓰기
+                    // 기존 onclick 제거 후 새로 할당
                     container.removeAttribute('onclick');
-                    container.setAttribute('onclick', `playWebPreview('${mediaId}', '${correctPreviewUrl}', '${targetUrl}')`);
-                    container.onclick = null; // JS 프로퍼티 초기화
+                    container.setAttribute('onclick', `playWebPreview('${mediaId}', '${cleanPreviewUrl}', '${targetUrl}')`);
+                    
+                    // 메모리에 남은 구형 핸들러 초기화
+                    container.onclick = null;
                 }
             }
         }
