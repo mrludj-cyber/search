@@ -868,8 +868,10 @@
                 // 이미지가 아예 없으면 클릭 시 새창 이동(GO)으로 변경
                 const container = document.getElementById(mediaId);
                 if(container) {
-                    container.onclick = null;
-                    container.setAttribute('onclick', `window.open('${targetUrl}', '_blank')`);
+                    // [수정] 함수 직접 할당
+                    container.onclick = function() {
+                        window.open(targetUrl, '_blank');
+                    };
                 }
         
             } else {
@@ -880,18 +882,19 @@
                 const badge = document.getElementById(badgeId);
                 if(badge) badge.style.display = 'none';
         
-                // [핵심 수정] 부모 컨테이너(div)의 클릭 이벤트를 '일반 미리보기 주소'로 교체
+                // [핵심 수정 파트] 
+                // setAttribute 대신 onclick 프로퍼티에 함수를 직접 할당해야 즉시 적용됩니다.
                 const container = document.getElementById(mediaId);
                 if(container && fileId) {
-                    // uncensored-leak 등의 수식어가 없는 깔끔한 ID로 주소 생성
                     const cleanPreviewUrl = `https://fourhoi.com/${fileId}/preview.mp4`;
                     
-                    // 기존 onclick 제거 후 새로 할당
-                    container.removeAttribute('onclick');
+                    // 1. 실제 작동하는 이벤트 핸들러 교체 (이게 핵심입니다!)
+                    container.onclick = function() {
+                        playWebPreview(mediaId, cleanPreviewUrl, targetUrl);
+                    };
+        
+                    // 2. 개발자 도구(Elements 탭)에서 헷갈리지 않게 속성 텍스트도 업데이트 (기능과는 무관하지만 확인용)
                     container.setAttribute('onclick', `playWebPreview('${mediaId}', '${cleanPreviewUrl}', '${targetUrl}')`);
-                    
-                    // 메모리에 남은 구형 핸들러 초기화
-                    container.onclick = null;
                 }
             }
         }
