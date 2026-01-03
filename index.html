@@ -497,6 +497,13 @@
         let titleQueue = [];
         let isBatchRunning = false;
         const BATCH_SIZE = 20;
+
+        // [신규] 줌 & 팬(이동) 관련 변수
+        let currentTranslateX = 0;
+        let currentTranslateY = 0;
+        let startPanX = 0;
+        let startPanY = 0;
+        let isPanning = false;
         
         // ==========================================
         // 1. 파일 스캔
@@ -742,11 +749,9 @@
                         let clickAction = "";
                         let badgeHtml = "";
                         
-                        // [기본 정보]
                         const stdThumb = `https://wsrv.nl/?url=fourhoi.com/${item.fileId}/cover-t.jpg&q=70`;
                         const targetUrl = `https://missav.live/ko/${item.fileId}`;
         
-                        // 1. 로컬 썸네일이 있는 경우
                         if (item.thumbnail) { 
                             thumbSrc = URL.createObjectURL(item.thumbnail); 
                             isLocal = true; 
@@ -757,14 +762,11 @@
                                 clickAction = `onclick="alert('메타데이터가 없습니다. 다시 스캔해주세요.')"`;
                             }
                         } 
-                        // 2. 웹 썸네일인 경우 (노모 우선 시도)
                         else { 
                             const uncensoredId = item.fileId + "-uncensored-leak";
                             thumbSrc = `https://wsrv.nl/?url=fourhoi.com/${uncensoredId}/cover-t.jpg&q=70`; 
                             const uncPreviewUrl = `https://fourhoi.com/${uncensoredId}/preview.mp4`;
         
-                            // [핵심] 처음에는 무조건 "노모 주소"로 클릭 이벤트를 겁니다.
-                            // 나중에 에러가 나면 replace로 저 주소만 싹 고칠 겁니다.
                             clickAction = `onclick="playWebPreview('${domMediaId}', '${uncPreviewUrl}', '${targetUrl}')"`;
                             
                             badgeHtml = `
@@ -782,7 +784,7 @@
                         }
                         const folderInfo = item.path ? item.path.replace(item.filename, '') : "경로 정보 없음";
         
-                        // [수정] onerror 인자에서 stdPreviewUrl 제거 (필요 없음)
+                        // [수정] onerror에 item.fileId 인자 추가하여 링크 복구 시 사용
                         const itemHtml = `
                             <div class="item history-item">
                                 <div class="filename" style="color:#b197fc; cursor:pointer; text-decoration:underline;" 
@@ -793,7 +795,7 @@
                                 
                                 <div id="${domMediaId}" class="media-container" ${clickAction} style="cursor:pointer;">
                                     <img src="${thumbSrc}" class="media-content" style="opacity:${isLocal?1:0.8}"
-                                            onerror="onHistoryThumbError(this, '${stdThumb}', '${domBadgeId}', '${domMediaId}', '${targetUrl}')">
+                                            onerror="onHistoryThumbError(this, '${stdThumb}', '${domBadgeId}', '${domMediaId}', '${targetUrl}', '${item.fileId}')">
                                     ${badgeHtml}
                                 </div>
         
@@ -853,8 +855,8 @@
             else el.style.display = 'grid';
         }
         
-        function onHistoryThumbError(img, fallbackUrl, badgeId, mediaId, targetUrl) {
-            // 1. 이미 fallback(일반 썸네일)으로 바뀐 상태에서도 또 에러가 난 경우 (최종 실패)
+        function onHistoryThumbError(img, fallbackUrl, badgeId, mediaId, targetUrl, fileId) {
+            // 1. 이미 fallback으로 교체된 상태 (최종 실패)
             if (img.src === fallbackUrl) {
                 img.onerror = null; 
                 img.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiB2aWV3Qm94PSIwIDAgMTAwIDEwMCI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCIgeT0iNTAiIGZpbGw9IiM3NzciIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObzwvdGV4dD48L3N2Zz4='; 
@@ -863,7 +865,6 @@
                 const badge = document.getElementById(badgeId);
                 if(badge) badge.style.display = 'none';
         
-                // 이미지가 아예 없으면 클릭 시 새창 이동(GO)으로 변경
                 const container = document.getElementById(mediaId);
                 if(container) {
                     container.onclick = null;
@@ -871,29 +872,21 @@
                 }
         
             } else {
-                // 2. 노모 썸네일 로드 실패 -> 일반 썸네일로 교체
+                // 2. 노모 실패 -> 일반 전환
                 img.src = fallbackUrl;
                 
-                // "노" 뱃지 숨기기
                 const badge = document.getElementById(badgeId);
                 if(badge) badge.style.display = 'none';
         
-                // [수정 핵심] 스캔 모드와 동일한 방식: 기존 onclick 주소에서 '-uncensored-leak' 문자열만 삭제
                 const container = document.getElementById(mediaId);
-                if(container) {
-                    // HTML에 적혀있는 onclick 속성값(문자열)을 가져옵니다.
-                    const currentClick = container.getAttribute('onclick');
+                if(container && fileId) {
+                    // [수정] 문자열 치환 대신 정확한 URL로 재설정
+                    const correctPreviewUrl = `https://fourhoi.com/${fileId}/preview.mp4`;
                     
-                    if (currentClick) {
-                        // 노모 식별자 제거 -> 자동으로 일반 주소가 됨
-                        const newClick = currentClick.replace('-uncensored-leak', '');
-                        
-                        // 변경된 속성 다시 적용
-                        container.setAttribute('onclick', newClick);
-                        
-                        // 혹시 JS property로 할당된 게 있다면 초기화 (HTML 속성 우선)
-                        container.onclick = null;
-                    }
+                    // onclick 속성을 안전하게 덮어쓰기
+                    container.removeAttribute('onclick');
+                    container.setAttribute('onclick', `playWebPreview('${mediaId}', '${correctPreviewUrl}', '${targetUrl}')`);
+                    container.onclick = null; // JS 프로퍼티 초기화
                 }
             }
         }
@@ -1322,9 +1315,11 @@
             clearSubtitles(); 
             player.src = ""; 
             
-            // [신규] 줌 초기화
+            // [초기화] 줌 및 위치 초기화
             currentScale = 1; 
-            player.style.transform = 'scale(1)'; 
+            currentTranslateX = 0;
+            currentTranslateY = 0;
+            player.style.transform = 'translate(0px, 0px) scale(1)'; 
         }
         function toggleSubList() {
             const isVisible = subListModal.style.display === 'flex'; subListModal.style.display = isVisible ? 'none' : 'flex';
@@ -1394,29 +1389,38 @@
         function onGestureStart(e) {
             if(e.target.closest('.controls-bar') || e.target.closest('.popup-menu') || e.target.closest('.sub-list-modal') || e.target.tagName === 'BUTTON') return;
             
-            // [신규] 2손가락 터치 시 핀치 줌 시작
+            // 2손가락 -> 핀치 줌 시작
             if (e.touches && e.touches.length === 2) {
                 isPinching = true;
-                // 두 손가락 사이의 거리 계산
+                isPanning = false; // 핀치 중엔 팬 중지
                 initialPinchDistance = Math.hypot(
                     e.touches[0].pageX - e.touches[1].pageX,
                     e.touches[0].pageY - e.touches[1].pageY
                 );
-                lastScale = currentScale; // 현재 스케일 기억
-                return; // 탐색/배속 로직 실행 방지
+                lastScale = currentScale; 
+                return;
             }
         
             isTouching = true; 
             isSpeeding = false; 
             wasPlayingBeforeDrag = !player.paused; 
             
-            // 1손가락 터치 좌표
+            // [신규] 확대 상태(scale > 1)라면 이동(Pan) 모드로 진입
+            if (currentScale > 1) {
+                isPanning = true;
+                startPanX = (e.type === 'touchstart' ? e.touches[0].clientX : e.clientX);
+                startPanY = (e.type === 'touchstart' ? e.touches[0].clientY : e.clientY);
+            } else {
+                isPanning = false; // 확대 안됐으면 탐색 모드
+            }
+        
+            // 탐색(Seek)용 시작점
             touchStartX = (e.type === 'touchstart' ? e.touches[0].clientX : e.clientX); 
             touchStartTime = player.currentTime;
             
-            if (wasPlayingBeforeDrag) {
+            if (wasPlayingBeforeDrag && !isPanning) { // 팬 모드가 아닐 때만 배속 준비
                 longPressTimer = setTimeout(() => {
-                    if (isTouching && !isDraggingSeek && !isPinching) { // 핀치 중 아닐 때만
+                    if (isTouching && !isDraggingSeek && !isPinching && !isPanning) { 
                         isSpeeding = true; 
                         savedSpeed = player.playbackRate; 
                         player.playbackRate = 4.0; 
@@ -1424,7 +1428,6 @@
                         gestureFeedback.style.top = '60px'; 
                         gestureFeedback.style.left = '20px';
                         gestureFeedback.style.transform = 'none'; 
-                        
                         gestureFeedback.style.opacity = '1'; 
                         gestureFeedback.innerText = '⏩ 4.0x'; 
                     }
@@ -1433,10 +1436,9 @@
         }
         
         function onGestureMove(e) {
-            // [신규] 핀치 줌 로직
+            // 1. 핀치 줌 로직 (두 손가락)
             if (isPinching && e.touches && e.touches.length === 2) {
-                if(e.cancelable) e.preventDefault(); // 화면 스크롤 방지
-        
+                if(e.cancelable) e.preventDefault(); 
                 const currentDist = Math.hypot(
                     e.touches[0].pageX - e.touches[1].pageX,
                     e.touches[0].pageY - e.touches[1].pageY
@@ -1444,14 +1446,13 @@
         
                 if (initialPinchDistance > 0) {
                     const zoomFactor = currentDist / initialPinchDistance;
-                    // 줌 범위 제한 (1.0배 ~ 5.0배)
                     let newScale = lastScale * zoomFactor;
                     newScale = Math.min(Math.max(newScale, 1.0), 5.0);
                     
                     currentScale = newScale;
-                    player.style.transform = `scale(${currentScale})`;
+                    // 줌 변경 시 위치 유지하면서 스케일 적용
+                    player.style.transform = `translate(${currentTranslateX}px, ${currentTranslateY}px) scale(${currentScale})`;
                     
-                    // 줌 상태 표시 (선택 사항)
                     gestureFeedback.style.top = '50%';
                     gestureFeedback.style.left = '50%';
                     gestureFeedback.style.transform = 'translate(-50%, -50%)';
@@ -1461,9 +1462,30 @@
                 return;
             }
         
-            if (!isTouching || isPinching) return; // 핀치 중이면 탐색 안 함
-            
-            if (isSpeeding) return;
+            // 2. 팬(이동) 로직 (확대 상태 + 한 손가락)
+            if (isPanning && currentScale > 1) {
+                if(e.cancelable) e.preventDefault();
+                const clientX = (e.type === 'touchmove' ? e.touches[0].clientX : e.clientX);
+                const clientY = (e.type === 'touchmove' ? e.touches[0].clientY : e.clientY);
+        
+                const deltaX = clientX - startPanX;
+                const deltaY = clientY - startPanY;
+        
+                // 현재 위치 업데이트
+                currentTranslateX += deltaX;
+                currentTranslateY += deltaY;
+        
+                // 적용
+                player.style.transform = `translate(${currentTranslateX}px, ${currentTranslateY}px) scale(${currentScale})`;
+        
+                // 시작점 갱신 (부드러운 이동)
+                startPanX = clientX;
+                startPanY = clientY;
+                return; // 탐색 로직 실행 방지
+            }
+        
+            // 3. 탐색(Seek) 로직 (확대 안된 상태 + 한 손가락)
+            if (!isTouching || isPinching || isSpeeding) return;
         
             if(e.cancelable) e.preventDefault(); 
             
@@ -1492,7 +1514,6 @@
                 gestureFeedback.style.top = '50%';
                 gestureFeedback.style.left = '50%';
                 gestureFeedback.style.transform = 'translate(-50%, -50%)';
-                
                 gestureFeedback.style.opacity = '1'; 
                 gestureFeedback.innerText = formatTime(targetTime);
                 
