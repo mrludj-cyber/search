@@ -1389,36 +1389,44 @@
         function onGestureStart(e) {
             if(e.target.closest('.controls-bar') || e.target.closest('.popup-menu') || e.target.closest('.sub-list-modal') || e.target.tagName === 'BUTTON') return;
             
-            // 2손가락 -> 핀치 줌 시작
+            // [Case 1] 두 손가락 터치 (핀치 줌 & 동시 이동 준비)
             if (e.touches && e.touches.length === 2) {
                 isPinching = true;
-                isPanning = false; // 핀치 중엔 팬 중지
+                isPanning = false; // 1핑거 팬 로직과는 분리
+        
+                // 1. 줌을 위한 초기 거리 계산
                 initialPinchDistance = Math.hypot(
                     e.touches[0].pageX - e.touches[1].pageX,
                     e.touches[0].pageY - e.touches[1].pageY
                 );
                 lastScale = currentScale; 
+        
+                // 2. 이동(Pan)을 위한 두 손가락의 중심점 계산
+                startPanX = (e.touches[0].pageX + e.touches[1].pageX) / 2;
+                startPanY = (e.touches[0].pageY + e.touches[1].pageY) / 2;
                 return;
             }
         
+            // [Case 2] 한 손가락 터치
             isTouching = true; 
             isSpeeding = false; 
             wasPlayingBeforeDrag = !player.paused; 
             
-            // [신규] 확대 상태(scale > 1)라면 이동(Pan) 모드로 진입
+            // 이미 확대된 상태라면 한 손가락 이동(Pan) 모드 진입
             if (currentScale > 1) {
                 isPanning = true;
                 startPanX = (e.type === 'touchstart' ? e.touches[0].clientX : e.clientX);
                 startPanY = (e.type === 'touchstart' ? e.touches[0].clientY : e.clientY);
             } else {
-                isPanning = false; // 확대 안됐으면 탐색 모드
+                isPanning = false; // 확대 안됐으면 탐색(Seek) 모드
             }
         
-            // 탐색(Seek)용 시작점
+            // 탐색(Seek)용 시작점 저장
             touchStartX = (e.type === 'touchstart' ? e.touches[0].clientX : e.clientX); 
             touchStartTime = player.currentTime;
             
-            if (wasPlayingBeforeDrag && !isPanning) { // 팬 모드가 아닐 때만 배속 준비
+            // 확대 상태가 아닐 때만 배속(Long Press) 기능 활성화
+            if (wasPlayingBeforeDrag && !isPanning && currentScale === 1) { 
                 longPressTimer = setTimeout(() => {
                     if (isTouching && !isDraggingSeek && !isPinching && !isPanning) { 
                         isSpeeding = true; 
@@ -1436,9 +1444,11 @@
         }
         
         function onGestureMove(e) {
-            // 1. 핀치 줌 로직 (두 손가락)
+            // [Case 1] 핀치 줌 & 동시 이동 (두 손가락)
             if (isPinching && e.touches && e.touches.length === 2) {
                 if(e.cancelable) e.preventDefault(); 
+                
+                // --- 1. 줌(Scale) 계산 ---
                 const currentDist = Math.hypot(
                     e.touches[0].pageX - e.touches[1].pageX,
                     e.touches[0].pageY - e.touches[1].pageY
@@ -1447,22 +1457,40 @@
                 if (initialPinchDistance > 0) {
                     const zoomFactor = currentDist / initialPinchDistance;
                     let newScale = lastScale * zoomFactor;
-                    newScale = Math.min(Math.max(newScale, 1.0), 5.0);
-                    
+                    newScale = Math.min(Math.max(newScale, 1.0), 5.0); // 1배~5배 제한
                     currentScale = newScale;
-                    // 줌 변경 시 위치 유지하면서 스케일 적용
-                    player.style.transform = `translate(${currentTranslateX}px, ${currentTranslateY}px) scale(${currentScale})`;
-                    
-                    gestureFeedback.style.top = '50%';
-                    gestureFeedback.style.left = '50%';
-                    gestureFeedback.style.transform = 'translate(-50%, -50%)';
-                    gestureFeedback.style.opacity = '1';
-                    gestureFeedback.innerText = `🔍 ${currentScale.toFixed(1)}x`;
                 }
+        
+                // --- 2. 이동(Pan) 계산 (중심점 이동) ---
+                // 현재 두 손가락의 중심점
+                const currentCenterX = (e.touches[0].pageX + e.touches[1].pageX) / 2;
+                const currentCenterY = (e.touches[0].pageY + e.touches[1].pageY) / 2;
+        
+                // 중심점이 얼마나 이동했는지(Delta) 계산
+                const deltaX = currentCenterX - startPanX;
+                const deltaY = currentCenterY - startPanY;
+        
+                // 현재 위치에 더하기
+                currentTranslateX += deltaX;
+                currentTranslateY += deltaY;
+        
+                // --- 3. 적용 및 초기화 ---
+                player.style.transform = `translate(${currentTranslateX}px, ${currentTranslateY}px) scale(${currentScale})`;
+                
+                // 다음 프레임 계산을 위해 현재 중심점을 시작점으로 갱신
+                startPanX = currentCenterX;
+                startPanY = currentCenterY;
+        
+                // 피드백 UI 표시
+                gestureFeedback.style.top = '50%';
+                gestureFeedback.style.left = '50%';
+                gestureFeedback.style.transform = 'translate(-50%, -50%)';
+                gestureFeedback.style.opacity = '1';
+                gestureFeedback.innerText = `🔍 ${currentScale.toFixed(1)}x`;
                 return;
             }
         
-            // 2. 팬(이동) 로직 (확대 상태 + 한 손가락)
+            // [Case 2] 한 손가락 팬 (확대 상태에서 이동)
             if (isPanning && currentScale > 1) {
                 if(e.cancelable) e.preventDefault();
                 const clientX = (e.type === 'touchmove' ? e.touches[0].clientX : e.clientX);
@@ -1471,20 +1499,17 @@
                 const deltaX = clientX - startPanX;
                 const deltaY = clientY - startPanY;
         
-                // 현재 위치 업데이트
                 currentTranslateX += deltaX;
                 currentTranslateY += deltaY;
         
-                // 적용
                 player.style.transform = `translate(${currentTranslateX}px, ${currentTranslateY}px) scale(${currentScale})`;
         
-                // 시작점 갱신 (부드러운 이동)
                 startPanX = clientX;
                 startPanY = clientY;
-                return; // 탐색 로직 실행 방지
+                return; 
             }
         
-            // 3. 탐색(Seek) 로직 (확대 안된 상태 + 한 손가락)
+            // [Case 3] 탐색 (Seek) 로직 (1배율 + 한 손가락)
             if (!isTouching || isPinching || isSpeeding) return;
         
             if(e.cancelable) e.preventDefault(); 
